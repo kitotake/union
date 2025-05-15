@@ -1,3 +1,5 @@
+-- shared/config.lua
+
 Config = {} -- Rendu global au lieu de local pour être accessible aux autres scripts
 
 Config.debugMode = true
@@ -19,11 +21,12 @@ Config.retries = {
     visibility = 5,
 }
 
+-- Ajout dans config.lua
+Config.temporaryModel = "player_zero"  -- Modèle utilisé pendant le chargement
+Config.useTemporaryModel = true        -- Activer l'utilisation du modèle temporaire
+Config.modelTransitionFade = true      -- Utiliser un fondu lors du changement de modèle
 Config.defaultModel = "mp_m_freemode_01"
 Config.femaleModel = "mp_f_freemode_01"
-Config.temporaryModel = "a_m_m_skater_01"
-Config.useTemporaryModel = true
-
 Config.outfits = {
     male = {
         casual = {
