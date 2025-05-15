@@ -1,27 +1,12 @@
 local playerCharacters = {}
 
--- Configuration par défaut améliorée
-local defaultConfig = {
-    spawnPos = vector3(0.0, 0.0, 0.0),  -- Position de spawn par défaut à 0,0,0
-    heading = 0.0,                      -- Heading par défaut
-    defaultModel = "player_zero",       -- Modèle par défaut amélioré
-    timeouts = {
-        modelLoad = 10000,              -- Temps de chargement du modèle augmenté
-        spawnDelay = 5000               -- Délai supplémentaire pour le spawn
-    }
-}
+-- Valeurs par défaut locales
+local defaultModel = "player_zero"
+local spawnPos = vector3(-285.3566, -949.3644, 91.1083)
+local heading = 0.0
+local spawnDelay = 5000
 
--- Récupération de la configuration depuis les ressources
-local function GetConfig()
-    local config = exports.union:GetConfig() or {}
-    -- Fusion avec la configuration par défaut
-    for k, v in pairs(defaultConfig) do
-        if not config[k] then config[k] = v end
-    end
-    return config
-end
 
--- Récupération des données de caractère d'un joueur
 local function GetPlayerCharacterData(playerId)
     local identifier = GetPlayerIdentifier(playerId, 0)
     if not identifier then
@@ -30,12 +15,11 @@ local function GetPlayerCharacterData(playerId)
     end
 
     if not playerCharacters[identifier] then
-        local Config = GetConfig()
         print("^5[SpawnSystem] Création d'un personnage par défaut pour " .. identifier)
         playerCharacters[identifier] = {
-            model = Config.defaultModel,
-            lastPosition = Config.spawnPos,
-            lastHeading = Config.heading,
+            model = defaultModel,
+            lastPosition = spawnPos,
+            lastHeading = heading,
             outfit = "casual",
             firstSpawn = true
         }
@@ -44,7 +28,6 @@ local function GetPlayerCharacterData(playerId)
     return playerCharacters[identifier]
 end
 
--- Sauvegarde des données de caractère d'un joueur
 local function SavePlayerCharacterData(playerId, characterData)
     local identifier = GetPlayerIdentifier(playerId, 0)
     if not identifier then
@@ -57,113 +40,71 @@ local function SavePlayerCharacterData(playerId, characterData)
     return true
 end
 
--- Vérification de la validité d'un modèle
-local function IsValidModel(model)
-    local allowedModels = {
-        "mp_m_freemode_01",
-        "mp_f_freemode_01",
-             -- Michael
-        "player_one",       -- Franklin
-        "player_two",       -- Trevor
-        "a_m_y_skater_01",
-        "a_m_y_hipster_01",
-        "a_m_m_skater_01", 
-        "a_m_m_bevhills_01"
-    }
-    
-    for _, allowed in ipairs(allowedModels) do
-        if model == allowed then return true end
-    end
-    
-    print("^1[SpawnSystem] Modèle non autorisé: " .. tostring(model))
-    return false
-end
-
--- Récupération de la position de spawn
 local function GetSpawnPosition(playerId, isFirstSpawn)
-    local Config = GetConfig()
     local characterData = GetPlayerCharacterData(playerId)
-    
+
     if isFirstSpawn or not characterData.lastPosition then
-        return Config.spawnPos, Config.heading
+        return spawnPos, heading
     end
-    
-    return characterData.lastPosition, characterData.lastHeading or Config.heading
+
+    return characterData.lastPosition, characterData.lastHeading or heading
 end
 
--- 🔁 Initial Spawn Request
 RegisterServerEvent("spawn:server:requestInitialSpawn")
 AddEventHandler("spawn:server:requestInitialSpawn", function()
     local source = source
     print("^5[DEBUG] Reçu spawn:server:requestInitialSpawn de " .. source)
 
-    local Config = GetConfig()
     local characterData = GetPlayerCharacterData(source)
     if not characterData then
-        print("^1[SpawnSystem] Erreur : characterData est nil pour " .. source)
-        -- Créer un personnage par défaut en dernier recours
         characterData = {
-            model = Config.defaultModel,
-            lastPosition = Config.spawnPos,
-            lastHeading = Config.heading,
+            model = defaultModel,
+            lastPosition = spawnPos,
+            lastHeading = heading,
             outfit = "casual",
             firstSpawn = true
         }
     end
 
-    local model = characterData.model
-    if not IsValidModel(model) then
-        model = Config.defaultModel
-    end
-
-    local spawnPos, heading = GetSpawnPosition(source, characterData.firstSpawn)
+    local model = characterData.model or defaultModel
+    local spawnPosFinal, headingFinal = GetSpawnPosition(source, characterData.firstSpawn)
 
     characterData.firstSpawn = false
     SavePlayerCharacterData(source, characterData)
 
     print("^3[SpawnSystem] Spawn initial pour " .. GetPlayerName(source) .. " avec modèle " .. model)
-    
-    -- Ajout d'un délai plus long pour s'assurer que le client est prêt
-    Wait(Config.timeouts.spawnDelay or 5000)
-    
-    -- Notification au client de se préparer à recevoir le spawn
+
+    Wait(spawnDelay)
+
     TriggerClientEvent("spawn:client:prepareSpawn", source)
     Wait(1000)
-    
-    TriggerClientEvent("spawn:client:applyCharacter", source, model, spawnPos, heading, characterData.outfit)
+
+    TriggerClientEvent("spawn:client:applyCharacter", source, model, spawnPosFinal, headingFinal, characterData.outfit)
 end)
 
--- 🔁 Respawn Request
 RegisterServerEvent("spawn:server:requestRespawn")
 AddEventHandler("spawn:server:requestRespawn", function(requestedModel)
     local source = source
-    local Config = GetConfig()
     local characterData = GetPlayerCharacterData(source)
     if not characterData then return end
 
-    local model = requestedModel
-    if not IsValidModel(model) then
-        model = characterData.model or Config.defaultModel
-    end
+    local model = requestedModel or characterData.model or defaultModel
 
     characterData.model = model
     SavePlayerCharacterData(source, characterData)
 
-    local spawnPos, heading = GetSpawnPosition(source, false)
+    local spawnPosFinal, headingFinal = GetSpawnPosition(source, false)
 
     print("^3[SpawnSystem] Respawn pour " .. GetPlayerName(source) .. " avec modèle " .. model)
-    
-    -- Délai augmenté pour le respawn
+
     Wait(3000)
-    
-    -- Notification au client de se préparer à recevoir le spawn
+
     TriggerClientEvent("spawn:client:prepareSpawn", source)
     Wait(1000)
-    
-    TriggerClientEvent("spawn:client:applyCharacter", source, model, spawnPos, heading, characterData.outfit)
+
+    TriggerClientEvent("spawn:client:applyCharacter", source, model, spawnPosFinal, headingFinal, characterData.outfit)
 end)
 
--- ✅ Confirm Complete
 RegisterServerEvent("spawn:server:confirmComplete")
 AddEventHandler("spawn:server:confirmComplete", function()
     local source = source
@@ -173,58 +114,30 @@ AddEventHandler("spawn:server:confirmComplete", function()
     characterData.spawned = true
     SavePlayerCharacterData(source, characterData)
 
-    -- Ajouter un délai pour s'assurer que tout est prêt côté client
     Wait(1000)
     TriggerClientEvent("spawn:client:confirmed", source)
     TriggerEvent("spawn:playerSpawnComplete", source, characterData.model)
-    
-    -- Notification de spawn complété pour les autres systèmes
     TriggerEvent("playerFullySpawned", source)
 end)
 
--- ❌ Report Error
-RegisterServerEvent("spawn:server:reportError")
-AddEventHandler("spawn:server:reportError", function(errorCode)
-    local source = source
-    local Config = GetConfig()
-    print("^1[SpawnSystem] Erreur persistante pour " .. GetPlayerName(source) .. " : " .. errorCode)
-
-    if errorCode == "MODEL_LOAD_FAILED" or errorCode == "MODEL_VERIFY_FAILED" then
-        -- Utiliser le modèle failover de la configuration
-        local failoverModel = Config.failover and Config.failover.defaultModel or "player_zero"
-        
-        -- Notification au client de se préparer à recevoir le spawn
-        TriggerClientEvent("spawn:client:prepareSpawn", source)
-        Wait(1000)
-        
-        TriggerClientEvent("spawn:client:applyCharacter", source, failoverModel, Config.spawnPos, Config.heading, "casual")
-    elseif errorCode == "LOADING_SCREEN_STUCK" then
-        -- Forcer la fermeture de l'écran de chargement si celui-ci est bloqué
-        TriggerClientEvent("spawn:client:forceCloseLoadingScreen", source)
-    end
-end)
-
--- 💾 Save Position
 RegisterServerEvent("spawn:server:savePosition")
-AddEventHandler("spawn:server:savePosition", function(position, heading)
+AddEventHandler("spawn:server:savePosition", function(position, headingValue)
     local source = source
     local characterData = GetPlayerCharacterData(source)
     if not characterData then return end
 
     characterData.lastPosition = position
-    characterData.lastHeading = heading
+    characterData.lastHeading = headingValue
     SavePlayerCharacterData(source, characterData)
 end)
 
--- 👗 Change Outfit
 RegisterServerEvent("spawn:server:changeOutfit")
 AddEventHandler("spawn:server:changeOutfit", function(outfitStyle)
     local source = source
-    local Config = GetConfig()
     local characterData = GetPlayerCharacterData(source)
     if not characterData then return end
 
-    if not Config.outfits or (not Config.outfits.male[outfitStyle] and not Config.outfits.female[outfitStyle]) then
+    if not outfits.male[outfitStyle] and not outfits.female[outfitStyle] then
         TriggerClientEvent("spawn:client:notification", source, "Style de tenue invalide")
         return
     end
@@ -235,7 +148,6 @@ AddEventHandler("spawn:server:changeOutfit", function(outfitStyle)
     TriggerClientEvent("spawn:client:updateOutfit", source, outfitStyle)
 end)
 
--- 🛠️ Commande console
 RegisterCommand("respawn", function(source, args)
     if source == 0 then
         if #args == 1 then
@@ -250,20 +162,13 @@ RegisterCommand("respawn", function(source, args)
     end
 end, false)
 
--- 🧹 Déconnexion
 AddEventHandler("playerDropped", function(reason)
     local source = source
     print("^3[SpawnSystem] Sauvegarde des données pour " .. GetPlayerName(source) .. " (déconnexion)")
 end)
 
--- 🔄 Ressource start
 AddEventHandler("onResourceStart", function(resourceName)
     if GetCurrentResourceName() == resourceName then
-        print("^2[SpawnSystem] Système de spawn initialisé avec modèle par défaut: " .. defaultConfig.defaultModel)
+        print("^2[SpawnSystem] Système de spawn initialisé avec modèle par défaut: " .. defaultModel)
     end
-end)
-
--- Exporter les fonctions de configuration pour d'autres ressources
-exports("GetDefaultConfig", function()
-    return defaultConfig
 end)
