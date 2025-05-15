@@ -1,0 +1,179 @@
+## Structure SQL pour Union Framework
+
+```sql
+-- Table des utilisateurs (comptes)
+CREATE TABLE IF NOT EXISTS `users` (
+    `id` INT(11) NOT NULL AUTO_INCREMENT,
+    `identifier` VARCHAR(60) NOT NULL,
+    `license` VARCHAR(50) DEFAULT NULL,
+    `name` VARCHAR(50) DEFAULT NULL,
+    `permission_level` INT(11) NOT NULL DEFAULT 0,
+    `group` VARCHAR(50) DEFAULT 'user',
+    `banned` TINYINT(1) DEFAULT 0,
+    `created_at` TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
+    `last_login` TIMESTAMP NULL DEFAULT NULL,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `identifier` (`identifier`)
+);
+
+-- Table des personnages
+CREATE TABLE IF NOT EXISTS `characters` (
+    `id` INT(11) NOT NULL AUTO_INCREMENT,
+    `user_id` INT(11) NOT NULL,
+    `firstname` VARCHAR(50) NOT NULL,
+    `lastname` VARCHAR(50) NOT NULL,
+    `dateofbirth` DATE NOT NULL,
+    `gender` ENUM('M', 'F') NOT NULL,
+    `model` VARCHAR(50) DEFAULT NULL,
+    `position_x` DOUBLE DEFAULT NULL,
+    `position_y` DOUBLE DEFAULT NULL,
+    `position_z` DOUBLE DEFAULT NULL,
+    `heading` DOUBLE DEFAULT NULL,
+    `health` INT(11) DEFAULT 200,
+    `armor` INT(11) DEFAULT 0,
+    `job` VARCHAR(50) DEFAULT NULL,
+    `job_grade` INT(11) DEFAULT NULL,
+    `created_at` TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
+    `last_played` TIMESTAMP NULL DEFAULT NULL,
+    PRIMARY KEY (`id`),
+    KEY `user_id` (`user_id`),
+    KEY `job_grade_lookup` (`job`, `job_grade`)
+);
+
+
+
+-- Apparence des personnages
+CREATE TABLE IF NOT EXISTS `character_appearances` (
+    `id` INT(11) NOT NULL AUTO_INCREMENT,
+    `character_id` INT(11) NOT NULL,
+    `skin_data` LONGTEXT DEFAULT NULL,
+    `face_features` LONGTEXT DEFAULT NULL,
+    `tattoos` LONGTEXT DEFAULT NULL,
+    `created_at` TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
+    `updated_at` TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `character_id` (`character_id`),
+    CONSTRAINT `fk_appearances_characters` FOREIGN KEY (`character_id`) REFERENCES `characters` (`id`) ON DELETE CASCADE
+);
+
+-- Véhicules possédés
+CREATE TABLE IF NOT EXISTS `owned_vehicles` (
+    `id` INT(11) NOT NULL AUTO_INCREMENT,
+    `character_id` INT(11) NOT NULL,
+    `plate` VARCHAR(12) NOT NULL,
+    `vehicle_model` VARCHAR(50) NOT NULL,
+    `vehicle_props` LONGTEXT DEFAULT NULL,
+    `stored` TINYINT(1) DEFAULT 1,
+    `garage_name` VARCHAR(50) DEFAULT 'central',
+    `fuel` FLOAT DEFAULT 100.0,
+    `engine_health` FLOAT DEFAULT 1000.0,
+    `body_health` FLOAT DEFAULT 1000.0,
+    `created_at` TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `plate` (`plate`),
+    KEY `character_id` (`character_id`),
+    CONSTRAINT `fk_vehicles_characters` FOREIGN KEY (`character_id`) REFERENCES `characters` (`id`) ON DELETE CASCADE
+);
+
+-- Emplois
+CREATE TABLE IF NOT EXISTS `jobs` (
+    `id` INT(11) NOT NULL AUTO_INCREMENT,
+    `name` VARCHAR(50) NOT NULL,
+    `label` VARCHAR(50) NOT NULL,
+    `whitelisted` TINYINT(1) DEFAULT 0,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `name` (`name`)
+);
+
+-- Grades d'emploi
+CREATE TABLE IF NOT EXISTS `job_grades` (
+    `id` INT(11) NOT NULL AUTO_INCREMENT,
+    `job_name` VARCHAR(50) NOT NULL,
+    `grade` INT(11) NOT NULL,
+    `name` VARCHAR(50) NOT NULL,
+    `label` VARCHAR(50) NOT NULL,
+    `salary` INT(11) DEFAULT 0,
+    `permissions` LONGTEXT DEFAULT NULL,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `job_grade` (`job_name`,`grade`),
+    CONSTRAINT `fk_job_grades_jobs` FOREIGN KEY (`job_name`) REFERENCES `jobs` (`name`) ON DELETE CASCADE
+);
+
+-- Comptes bancaires
+CREATE TABLE IF NOT EXISTS `bank_accounts` (
+    `id` INT(11) NOT NULL AUTO_INCREMENT,
+    `account_number` VARCHAR(10) NOT NULL,
+    `owner_type` VARCHAR(50) NOT NULL,
+    `owner_id` VARCHAR(50) NOT NULL,
+    `type` VARCHAR(50) NOT NULL DEFAULT 'personal',
+    `balance` INT(11) DEFAULT 0,
+    `created_at` TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
+    `updated_at` TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `account_number` (`account_number`),
+    KEY `owner` (`owner_type`,`owner_id`)
+);
+
+-- Transactions bancaires (amélioré)
+CREATE TABLE IF NOT EXISTS `bank_transactions` (
+    `id` INT(11) NOT NULL AUTO_INCREMENT,
+    `account_id` INT(11) NOT NULL,
+    `amount` INT(11) NOT NULL,
+    `description` VARCHAR(255) DEFAULT NULL,
+    `type` ENUM('deposit','withdraw','transfer') NOT NULL,
+    `source` VARCHAR(50) DEFAULT NULL,
+    `created_at` TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    KEY `account_id` (`account_id`),
+    CONSTRAINT `fk_transactions_accounts` FOREIGN KEY (`account_id`) REFERENCES `bank_accounts` (`id`) ON DELETE CASCADE
+);
+
+-- Commerces
+CREATE TABLE IF NOT EXISTS `shops` (
+    `id` INT(11) NOT NULL AUTO_INCREMENT,
+    `name` VARCHAR(50) NOT NULL,
+    `label` VARCHAR(50) NOT NULL,
+    `coords` VARCHAR(255) NOT NULL,
+    `items` LONGTEXT DEFAULT NULL,
+    `owner_type` VARCHAR(50) DEFAULT NULL,
+    `owner_id` VARCHAR(50) DEFAULT NULL,
+    `money` INT(11) DEFAULT 0,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `name` (`name`)
+);
+
+-- Logs (nouvelle table)
+CREATE TABLE IF NOT EXISTS `action_logs` (
+    `id` INT(11) NOT NULL AUTO_INCREMENT,
+    `user_id` INT(11) DEFAULT NULL,
+    `character_id` INT(11) DEFAULT NULL,
+    `action` VARCHAR(100) NOT NULL,
+    `details` TEXT DEFAULT NULL,
+    `created_at` TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`)
+);
+
+-- Insertion de données par défaut
+INSERT INTO `jobs` (`name`, `label`, `whitelisted`) VALUES
+('unemployed', 'Chomeur', 0),
+('police', 'Police', 1),
+('ambulance', 'Ambulance', 1),
+('mechanic', 'Mécanicien', 0);
+
+INSERT INTO `job_grades` (`job_name`, `grade`, `name`, `label`, `salary`) VALUES
+('unemployed', 0, 'unemployed', 'Chomeur', 50),
+('police', 0, 'recruit', 'Recrue', 150),
+('police', 1, 'officer', 'Officier', 200),
+('police', 2, 'sergeant', 'Sergent', 250),
+('police', 3, 'lieutenant', 'Lieutenant', 300),
+('police', 4, 'boss', 'Commandant', 350),
+('ambulance', 0, 'ambulance', 'Ambulancier', 150),
+('ambulance', 1, 'doctor', 'Médecin', 225),
+('ambulance', 2, 'surgeon', 'Chirurgien', 300),
+('ambulance', 3, 'boss', 'Directeur', 350),
+('mechanic', 0, 'recrue', 'Recrue', 125),
+('mechanic', 1, 'novice', 'Novice', 150),
+('mechanic', 2, 'experimente', 'Expérimenté', 200),
+('mechanic', 3, 'chief', 'Chef d\'équipe', 250),
+('mechanic', 4, 'boss', 'Patron', 300);
+```
