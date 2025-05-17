@@ -1,8 +1,8 @@
 -- 📁 server/main.lua
 
--- local playerCharacters = {}
--- local defaultModel = "player_one"
-local spawnPos = vector3(-285.3566, -949.3644, 91.1083)
+local playerCharacters = {}
+local config = exports.union:GetConfig()
+local temporary = vector3(221.5427, -917.5260, 30.6920)
 local heading = 0.0
 local spawnDelay = 5000
 
@@ -18,7 +18,7 @@ local function GetPlayerCharacterData(playerId)
         print("^5[SpawnSystem] Création d'un personnage par défaut pour " .. identifier)
         playerCharacters[identifier] = {
             model = config.defaultModel,
-            lastPosition = spawnPos,
+            lastPosition = temporary,
             lastHeading = heading,
             outfit = "casual",
             firstSpawn = true
@@ -43,7 +43,7 @@ end
 local function GetSpawnPosition(playerId, isFirstSpawn)
     local characterData = GetPlayerCharacterData(playerId)
     if isFirstSpawn or not characterData.lastPosition then
-        return spawnPos, heading
+        return temporary, heading
     end
     return characterData.lastPosition, characterData.lastHeading or heading
 end
@@ -72,7 +72,7 @@ AddEventHandler("spawn:server:requestInitialSpawn", function()
     local charData = GetPlayerCharacterData(src)
     if not charData then return end
 
-    local model = charData.model or defaultModel
+    local model = charData.model or config.defaultModel
     local pos, head = GetSpawnPosition(src, charData.firstSpawn)
     charData.firstSpawn = false
     SavePlayerCharacterData(src, charData)
@@ -92,7 +92,7 @@ AddEventHandler("spawn:server:requestRespawn", function(requestedModel)
     local charData = GetPlayerCharacterData(src)
     if not charData then return end
 
-    local model = requestedModel or charData.model or defaultModel
+    local model = requestedModel or charData.model or config.defaultModel
     charData.model = model
     SavePlayerCharacterData(src, charData)
 
@@ -190,6 +190,7 @@ end)
 -- 🚀 Initialisation du système
 AddEventHandler("onResourceStart", function(resName)
     if GetCurrentResourceName() == resName then
-        print("^2[SpawnSystem] Initialisé. Modèle par défaut: " .. defaultModel)
+        print("^2[SpawnSystem] Initialisé. Modèle temporaire: " .. config.temporaryModel)
+        print("^2[SpawnSystem] Modèle par défaut: " .. config.defaultModel)
     end
-end)
+end)    
