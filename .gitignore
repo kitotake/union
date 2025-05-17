@@ -1,0 +1,21 @@
+# Logs
+logs
+*.log
+.pnpm-debug.log*
+
+# Dependency directories
+node_modules/
+
+# dotenv environment files
+.env
+.env.development.local
+.env.test.local
+.env.production.local
+.env.local
+
+dist/
+.cache/
+prisma/migrations/
+
+# Ressources sensibles
+server/connect.lua
