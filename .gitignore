@@ -18,4 +18,5 @@ dist/
 prisma/migrations/
 
 # Ressources sensibles
-server/connect.lua
+
+shared/client/webhooks.lua
