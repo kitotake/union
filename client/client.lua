@@ -197,14 +197,22 @@ AddEventHandler("spawn:client:confirmed", function()
     TriggerEvent("playerSpawned")
 end)
 
+-- Fonction améliorée pour charger les animations
 function LoadAnimDict(dict)
+    if not dict or dict == "" then
+        return false
+    end
+    
     RequestAnimDict(dict)
     local startTime = GetGameTimer()
+    
     while not HasAnimDictLoaded(dict) do
         Wait(10)
         if GetGameTimer() - startTime > 5000 then
             log("ERROR", "Échec chargement animdict: " .. dict)
-            break
+            return false
         end
     end
+    
+    return true
 end

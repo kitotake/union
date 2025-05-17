@@ -97,6 +97,11 @@ function union:SyncIdentifier(pPlayer)
 end
 
 function sendLogToDiscord(name, license, ip, discord, fivem)
+    if not Config.webhooks or not Config.webhooks.connectionRejected then
+        print("^1[ERROR] Webhook configuration missing")
+        return
+    end
+
     local content = {
         username = "Union Logs",
         embeds = {{
@@ -106,8 +111,14 @@ function sendLogToDiscord(name, license, ip, discord, fivem)
             color = 16711680
         }}
     }
-    PerformHttpRequest("https://discord.com/api/webhooks/????????????????", function() end, 'POST', json.encode(content), {['Content-Type'] = 'application/json'})
+    
+    PerformHttpRequest(Config.webhooks.connectionRejected, function(err, text, headers)
+        if err ~= 200 then
+            print("^1[ERROR] Failed to send Discord webhook: " .. tostring(err))
+        end
+    end, 'POST', json.encode(content), {['Content-Type'] = 'application/json'})
 end
+
 
 function sendSuccessLogToDiscord(name, license, ip, discord, fivem)
     local content = {
@@ -127,5 +138,9 @@ function sendSuccessLogToDiscord(name, license, ip, discord, fivem)
         }}
     }
 
-    PerformHttpRequest("https://discord.com/api/webhooks/??????????", function() end, 'POST', json.encode(content), { ['Content-Type'] = 'application/json' })
+    PerformHttpRequest(Config.webhooks.connectionRejected, function(err, text, headers)
+        if err ~= 200 then
+            print("^1[ERROR] Failed to send Discord webhook: " .. tostring(err))
+        end
+    end, 'POST', json.encode(content), {['Content-Type'] = 'application/json'})
 end

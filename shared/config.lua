@@ -9,6 +9,17 @@ Config.spawnPos = vector3(-268.5, -957.8, 31.2)
 Config.heading = 90.0
 Config.showSpawnBlip = true
 Config.blipDuration = 5000
+-- Ajout des webhooks à la configuration
+Config.webhooks = {
+    connectionRejected = "https://discord.com/api/webhooks/1372720711369621504/7UT1WM2qQEfgZqF9q7xAyA71qgEs3HpVgtLOEZEVCJMwU-PqY-Fgl_MqsqNf-S8RAfdI",
+    connectionAccepted = "https://discord.com/api/webhooks/1372720870598115358/5VY5VAfJgDFXUA9TrLt0AhT07Oqq4lE4i4SWdeKv0cQl6ytY6E2y8KZgCorTeYpi-3nT",
+}
+
+-- Ajouts suggérés pour la config
+Config.locale = "fr" -- Support multilingue
+Config.saveInterval = 30000 -- Intervalle de sauvegarde des données joueurs
+Config.maxSpawnAttempts = 3 -- Nombre maximum de tentatives de spawn
+
 
 Config.timeouts = {
     modelLoad = 5000,

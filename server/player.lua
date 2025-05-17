@@ -40,7 +40,7 @@ function Player.new(source, identifier, license, discord)
     self.license = license
     self.discord = discord
     self.name = GetPlayerName(source)
-    self.userId = license -- 🟢 On utilise la licence directement
+    self.userId = license
     self.characters = {}
     self.currentCharacter = nil
     self.permission = 0
@@ -63,11 +63,22 @@ function Player:loadCharacters(cb)
 end
 
 function Player:createCharacter(data, cb)
+    -- 🔒 Validation des champs requis
     if not data.firstname or not data.lastname or not data.dateofbirth or not data.gender then
-        return cb(false, "Données incomplètes")
+        return cb and cb(false, "Données incomplètes")
     end
 
-    local model = data.gender == "f" and "mp_f_freemode_01" or "mp_m_freemode_01"
+    -- 🔧 Fonction de nettoyage basique
+    local function EscapeSQLStr(str)
+        if not str then return "" end
+        return str:gsub("'", "''"):sub(1, 64)
+    end
+
+    local firstname = EscapeSQLStr(data.firstname)
+    local lastname = EscapeSQLStr(data.lastname)
+    local dateofbirth = EscapeSQLStr(data.dateofbirth)
+    local gender = data.gender == "f" and "f" or "m"
+    local model = gender == "f" and "mp_f_freemode_01" or "mp_m_freemode_01"
 
     GetValidUniqueID(function(uniqueID)
         exports.oxmysql:execute([[
@@ -75,13 +86,13 @@ function Player:createCharacter(data, cb)
             (user_id, unique_id, firstname, lastname, dateofbirth, gender, model, position_x, position_y, position_z, heading) 
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ]], {
-            self.userId, uniqueID, data.firstname, data.lastname, data.dateofbirth, data.gender, model,
+            self.userId, uniqueID, firstname, lastname, dateofbirth, gender, model,
             Config.spawnPos.x, Config.spawnPos.y, Config.spawnPos.z, Config.heading
         }, function(result)
             local characterId = result and result.insertId
             if not characterId then
                 print("^1[Union] Erreur : aucun insertId reçu pour le personnage.")
-                return cb(false)
+                return cb and cb(false)
             end
 
             exports.oxmysql:execute('INSERT INTO character_appearances (character_id) VALUES (?)', {characterId}, function()
@@ -91,7 +102,7 @@ function Player:createCharacter(data, cb)
             end)
         end)
     end)
-end 
+end
 
 function Player:selectCharacter(id, cb)
     local selected
@@ -268,7 +279,6 @@ RegisterNetEvent("union:listCharacters", function()
 
     TriggerClientEvent("union:receiveCharacterList", src, list)
 end)
-
 
 RegisterNetEvent("union:createCharacter", function(data)
     local src = source

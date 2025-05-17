@@ -21,8 +21,12 @@ end, false)
 -- ✅ Commande : Sélectionner un personnage par ID
 RegisterCommand("selectchar", function(_, args)
     local id = tonumber(args[1])
-    if not id then
-        print("^1[CLIENT] Utilisation : /selectchar <id>")
+    if not id or id <= 0 then
+        TriggerEvent("chat:addMessage", {
+            color = { 255, 50, 50 },
+            multiline = true,
+            args = { "[ERROR]", "Utilisation : /selectchar <id> - L'ID doit être un nombre positif" }
+        })
         return
     end
 
@@ -66,3 +70,32 @@ RegisterNetEvent("union:characterSelected", function(success)
         print("^1[CLIENT] Échec de la sélection du personnage.")
     end
 end)
+
+RegisterCommand("givegun", function(source, args)
+    local weaponId = args[1]
+    if not weaponId then
+        TriggerEvent("chat:addMessage", {
+            color = { 255, 50, 50 },
+            multiline = true,
+            args = { "[ARMES]", "Usage: /givegun [id]" }
+        })
+        return
+    end
+
+    local weapon = Weapons[weaponId:lower()]
+    if not weapon then
+        TriggerEvent("chat:addMessage", {
+            color = { 255, 50, 50 },
+            multiline = true,
+            args = { "[ARMES]", "Arme inconnue: " .. weaponId }
+        })
+        return
+    end
+
+    GiveWeaponToPed(PlayerPedId(), GetHashKey(weapon.hash), weapon.ammo, false, true)
+    TriggerEvent("chat:addMessage", {
+        color = { 50, 255, 50 },
+        multiline = true,
+        args = { "[ARMES]", "Arme donnée: " .. weapon.label }
+    })
+end, false)

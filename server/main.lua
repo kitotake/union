@@ -48,6 +48,17 @@ local function GetSpawnPosition(playerId, isFirstSpawn)
     return characterData.lastPosition, characterData.lastHeading or heading
 end
 
+-- ✨ Fonction centralisée de spawn
+local function TriggerPlayerSpawn(src, model, position, heading, outfit, delay, isRespawn)
+    local spawnType = isRespawn and "Respawn" or "Spawn initial"
+    print("^3[SpawnSystem] " .. spawnType .. " pour " .. GetPlayerName(src) .. " avec modèle " .. model)
+
+    Wait(delay or spawnDelay)
+    TriggerClientEvent("spawn:client:prepareSpawn", src)
+    Wait(1000)
+    TriggerClientEvent("spawn:client:applyCharacter", src, model, position, heading, outfit)
+end
+
 -- 🧠 Ping SQL pour tester communication
 RegisterNetEvent('spawn:server:pingSQL')
 AddEventHandler('spawn:server:pingSQL', function()
@@ -77,12 +88,7 @@ AddEventHandler("spawn:server:requestInitialSpawn", function()
     charData.firstSpawn = false
     SavePlayerCharacterData(src, charData)
 
-    print("^3[SpawnSystem] Spawn initial pour " .. GetPlayerName(src) .. " avec modèle " .. model)
-
-    Wait(spawnDelay)
-    TriggerClientEvent("spawn:client:prepareSpawn", src)
-    Wait(1000)
-    TriggerClientEvent("spawn:client:applyCharacter", src, model, pos, head, charData.outfit)
+    TriggerPlayerSpawn(src, model, pos, head, charData.outfit, spawnDelay, false)
 end)
 
 -- 🔁 Respawn manuel ou forcé
@@ -97,12 +103,7 @@ AddEventHandler("spawn:server:requestRespawn", function(requestedModel)
     SavePlayerCharacterData(src, charData)
 
     local pos, head = GetSpawnPosition(src, false)
-    print("^3[SpawnSystem] Respawn pour " .. GetPlayerName(src) .. " avec modèle " .. model)
-
-    Wait(3000)
-    TriggerClientEvent("spawn:client:prepareSpawn", src)
-    Wait(1000)
-    TriggerClientEvent("spawn:client:applyCharacter", src, model, pos, head, charData.outfit)
+    TriggerPlayerSpawn(src, model, pos, head, charData.outfit, 3000, true)
 end)
 
 -- ✅ Confirmation de spawn terminé côté client
@@ -146,9 +147,7 @@ AddEventHandler("spawn:server:reportError", function(errorType)
 
     Wait(4000)
     local pos, head = GetSpawnPosition(src, false)
-    TriggerClientEvent("spawn:client:prepareSpawn", src)
-    Wait(1000)
-    TriggerClientEvent("spawn:client:applyCharacter", src, fallback, pos, head, "casual")
+    TriggerPlayerSpawn(src, fallback, pos, head, "casual", spawnDelay, true)
 end)
 
 -- 🎽 Changement de tenue
@@ -193,4 +192,4 @@ AddEventHandler("onResourceStart", function(resName)
         print("^2[SpawnSystem] Initialisé. Modèle temporaire: " .. config.temporaryModel)
         print("^2[SpawnSystem] Modèle par défaut: " .. config.defaultModel)
     end
-end)    
+end)

@@ -1,7 +1,25 @@
 -- 📁 shared/weapons.lua
 
 Weapons = {
-    pistol = {
+    melee = {
+        knife = {
+            hash = "WEAPON_KNIFE",
+            label = "Couteau",
+            ammo = 1
+        },
+        bat = {
+            hash = "WEAPON_BAT",
+            label = "Batte de baseball",
+            ammo = 1
+        },
+        crowbar = {
+            hash = "WEAPON_CROWBAR",
+            label = "Pied de biche",
+            ammo = 1
+        }
+    },
+    pistols = {
+        pistol = {
         hash = "WEAPON_PISTOL",
         label = "Pistolet",
         ammo = 100
@@ -95,20 +113,15 @@ Weapons = {
         hash = "WEAPON_GRENADE",
         label = "Grenade",
         ammo = 5
-    },
-    knife = {
-        hash = "WEAPON_KNIFE",
-        label = "Couteau",
-        ammo = 1
-    },
-    bat = {
-        hash = "WEAPON_BAT",
-        label = "Batte de baseball",
-        ammo = 1
-    },
-    crowbar = {
-        hash = "WEAPON_CROWBAR",
-        label = "Pied de biche",
-        ammo = 1
     }
 }
+
+function GetFlatWeaponsList()
+    local flat = {}
+    for category, weapons in pairs(Weapons) do
+        for id, weapon in pairs(weapons) do
+            flat[id] = weapon
+        end
+    end
+    return flat
+end
