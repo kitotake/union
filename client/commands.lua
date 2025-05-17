@@ -1,4 +1,6 @@
--- 📦 Commande pour créer un personnage
+-- 📁 client/commands.lua
+
+-- 🧍 Commande : Créer un personnage (exemple de base)
 RegisterCommand("createchar", function()
     local data = {
         firstname = "Jean",
@@ -11,12 +13,12 @@ RegisterCommand("createchar", function()
     TriggerServerEvent("union:createCharacter", data)
 end, false)
 
--- 📦 Liste les personnages du joueur
+-- 📋 Commande : Lister tous les personnages du joueur
 RegisterCommand("listchars", function()
     TriggerServerEvent("union:listCharacters")
 end, false)
 
--- 📦 Sélectionne un personnage via son ID (entier)
+-- ✅ Commande : Sélectionner un personnage par ID
 RegisterCommand("selectchar", function(_, args)
     local id = tonumber(args[1])
     if not id then
@@ -24,20 +26,20 @@ RegisterCommand("selectchar", function(_, args)
         return
     end
 
-    print("^2[CLIENT] Demande de sélection du personnage ID " .. id)
+    print("^2[CLIENT] Demande de sélection du personnage ID : " .. id)
     TriggerServerEvent("union:selectCharacter", id)
 end, false)
 
--- 🎯 Réception confirmation création
+-- 🔔 Confirmation de création de personnage
 RegisterNetEvent("union:characterCreated", function(success, id, uniqueID)
     if success then
-        print(("[CLIENT] ✅ Personnage créé ! ID interne: %s | UID: %s"):format(id, uniqueID))
+        print(("[CLIENT] ✅ Personnage créé avec succès ! ID: %s | UID: %s"):format(id, uniqueID))
     else
         print("[CLIENT] ❌ Échec de la création du personnage.")
     end
 end)
 
--- 🎯 Réception de la liste
+-- 📥 Liste reçue depuis le serveur
 RegisterNetEvent("union:receiveCharacterList", function(list)
     if not list or #list == 0 then
         print("^1[CLIENT] Aucun personnage trouvé.")
@@ -56,11 +58,11 @@ RegisterNetEvent("union:receiveCharacterList", function(list)
     end
 end)
 
--- 🎯 Réception confirmation sélection
+-- ✅ Confirmation de sélection
 RegisterNetEvent("union:characterSelected", function(success)
     if success then
         print("^2[CLIENT] Personnage sélectionné avec succès.")
     else
-        print("^1[CLIENT] Erreur lors de la sélection du personnage.")
+        print("^1[CLIENT] Échec de la sélection du personnage.")
     end
 end)
