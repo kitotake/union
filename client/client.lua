@@ -82,10 +82,6 @@ AddEventHandler("spawn:client:applyCharacter", function(model, position, heading
     spawnInProgress = true
     spawnAttempts += 1
 
-    ShutdownLoadingScreen()
-    ShutdownLoadingScreenNui()
-    Wait(1000)
-
     log("SPAWN", "Déclenchement de spawn:server:requestInitialSpawn")
     if Config.debugMode then
         log("SPAWN", "Debug actif. Déclenchement du spawn initial")
@@ -109,6 +105,11 @@ AddEventHandler("spawn:client:applyCharacter", function(model, position, heading
             return
         end
     end
+
+    Wait(5000)  
+    ShutdownLoadingScreen()
+    ShutdownLoadingScreenNui()
+    Wait(1000)  
 
     SetPlayerModel(PlayerId(), GetHashKey(model))
     SetModelAsNoLongerNeeded(GetHashKey(model))
