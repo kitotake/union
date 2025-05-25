@@ -96,6 +96,8 @@ function union:SyncIdentifier(pPlayer)
     }
 end
 
+
+
 function sendLogToDiscord(name, license, ip, discord, fivem)
     if not Config.webhooks or not Config.webhooks.connectionRejected then
         print("^1[ERROR] Webhook configuration missing")

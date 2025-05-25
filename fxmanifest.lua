@@ -12,19 +12,21 @@ version "0.0.1"
 lua54 'yes'
 
 shared_scripts {
-	'shared/client/webhooks.lua',
+	'shared/webhooks.lua',
 	'shared/client/*.lua',
 	'shared/lange/*.lua',
 	'shared/*.lua'
 }
 
 client_scripts {
-	'client/*.lua'
+	'client/*.lua',
+	'shared/**/*.lua',
 }
 
 server_scripts {
 	'@oxmysql/lib/MySQL.lua',
-	'server/*.lua'
+	'server/*.lua',
+	'shared/**/*.lua'
 	
 }
 
