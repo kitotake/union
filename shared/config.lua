@@ -1,42 +1,22 @@
--- shared/config.lua
+-- 📁 shared/config.lua
 
-Config = {} -- Rendu global au lieu de local pour être accessible aux autres scripts
+Config = {}
 
 Config.debugMode = true
 Config.defaultHealth = 200
 Config.defaultArmor = 100
-Config.spawnPos = vector3(-268.5, -957.8, 31.2)
-Config.heading = 90.0
-Config.showSpawnBlip = true
-Config.blipDuration = 5000
-
--- Ajouts suggérés pour la config
-Config.locale = "fr" -- Support multilingue
-Config.saveInterval = 30000 -- Intervalle de sauvegarde des données joueurs
-Config.maxSpawnAttempts = 3 -- Nombre maximum de tentatives de spawn
-
-Config.webhooks = {
-    connectionRejected = "",
-    connectionAccepted = "",
-}
-
-Config.timeouts = {
-    modelLoad = 5000,
-    modelVerify = 5000,
-    networkVisibility = 3000,
-}
-
-Config.retries = {
-    spawn = 3,
-    visibility = 5,
-}
-
--- Ajout dans config.lua
-Config.temporaryModel = "player_zero"  -- Modèle utilisé pendant le chargement
-Config.useTemporaryModel = true        -- Activer l'utilisation du modèle temporaire
-Config.modelTransitionFade = true      -- Utiliser un fondu lors du changement de modèle
 Config.defaultModel = "mp_m_freemode_01"
 Config.femaleModel = "mp_f_freemode_01"
+
+Config.temporaryModel = "player_zero"
+Config.useTemporaryModel = true
+Config.modelTransitionFade = true
+
+Config.spawnDelay = 5000
+Config.spawnPos = vector3(-268.5, -957.8, 31.2)
+Config.heading = 90.0
+Config.temporary = vector3(221.5427, -917.5260, 30.6920)
+
 Config.outfits = {
     male = {
         casual = {
@@ -56,14 +36,6 @@ Config.outfits = {
     }
 }
 
-Config.failover = {
-    defaultModel = "a_m_m_bevhills_01",
-    useFailoverModel = true,
-    continueOnModelError = false,
-    continueOnVisibilityError = false,
-}
-
-Config.autoRecovery = true
 
 -- ✅ Export client
 exports("GetConfig", function()
