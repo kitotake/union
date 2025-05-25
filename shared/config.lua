@@ -16,8 +16,8 @@ Config.saveInterval = 30000 -- Intervalle de sauvegarde des données joueurs
 Config.maxSpawnAttempts = 3 -- Nombre maximum de tentatives de spawn
 
 Config.webhooks = {
-    connectionRejected = "https://discord.com/api/webhooks/1372720711369621504/###",
-    connectionAccepted = "https://discord.com/api/webhooks/1372720870598115358/###",
+    connectionRejected = "",
+    connectionAccepted = "",
 }
 
 Config.timeouts = {
