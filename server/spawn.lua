@@ -6,12 +6,12 @@ local config = exports['union']:GetConfig()
 RegisterServerEvent("spawn:server:requestRespawn")
 AddEventHandler("spawn:server:requestRespawn", function(requestedModel)
     local src = source
-    local charData = CharacterData.GetPlayerCharacterData(src)
+    local charData = GetPlayerCharacterData(src)
     if not charData then return end
 
     local model = requestedModel or charData.model or config.defaultModel
     charData.model = model
-    CharacterData.SavePlayerCharacterData(src, charData)
+    SavePlayerCharacterData(src, charData)
 
     local pos, head = SpawnFunctions.GetSpawnPosition(src, false)
     SpawnFunctions.TriggerPlayerSpawn(src, model, pos, head, charData.outfit, 3000, true)
@@ -21,11 +21,11 @@ end)
 RegisterServerEvent("spawn:server:confirmComplete")
 AddEventHandler("spawn:server:confirmComplete", function()
     local src = source
-    local charData = characterData.GetPlayerCharacterData(src)
+    local charData = GetPlayerCharacterData(src)
     if not charData then return end
 
     charData.spawned = true
-    characterData.SavePlayerCharacterData(src, charData)
+    SavePlayerCharacterData(src, charData)
 
     Wait(1000)
     TriggerClientEvent("spawn:client:confirmed", src)
@@ -37,12 +37,12 @@ end)
 RegisterServerEvent("spawn:server:savePosition")
 AddEventHandler("spawn:server:savePosition", function(position, headingValue)
     local src = source
-    local charData = characterData.GetPlayerCharacterData(src)
+    local charData = GetPlayerCharacterData(src)
     if not charData then return end
 
     charData.lastPosition = position
     charData.lastHeading = headingValue
-    characterData.SavePlayerCharacterData(src, charData)
+    SavePlayerCharacterData(src, charData)
 end)
 
 -- ❌ Gestion d'erreurs de spawn côté client
@@ -51,7 +51,7 @@ AddEventHandler("spawn:server:reportError", function(errorType)
     local src = source
     print("^1[ERROR] Client " .. src .. " a signalé: " .. errorType)
 
-    local charData = characterData.GetPlayerCharacterData(src)
+    local charData = GetPlayerCharacterData(src)
     if not charData then return end
 
     local fallback = (charData.gender == "f") and "a_f_y_beach_01" or "a_m_y_beach_01"

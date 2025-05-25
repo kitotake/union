@@ -1,5 +1,10 @@
 Spawn = {}
 
+-- Configuration par défaut
+Config = Config or {}
+Config.spawnPos = vector3(-268.5, -957.8, 31.2)
+Config.spawnHeading = 0.0
+
 function Spawn.initialize()
     print("^2[SPAWN] Initialisation du système de spawn")
     TriggerServerEvent("spawn:server:requestInitialSpawn")
@@ -7,7 +12,14 @@ end
 
 RegisterNetEvent("spawn:client:applyCharacter", function(model, pos, heading, outfitStyle)
     print("^2[SPAWN] Application du personnage: " .. model)
-    
+
+    -- Sécurité : fallback si `pos` ou `heading` sont absents
+    if not pos then
+        print("^1[SPAWN] ⚠ Position reçue est NIL, fallback utilisé")
+        pos = Config.spawnPos
+        heading = Config.spawnHeading
+    end
+
     -- Vérifier si on a une position sauvegardée
     if Position and Position.getLast then
         local lastPos, lastHeading, hasSaved = Position.getLast()
@@ -17,13 +29,13 @@ RegisterNetEvent("spawn:client:applyCharacter", function(model, pos, heading, ou
             print("^3[SPAWN] Utilisation position sauvegardée")
         end
     end
-    
+
     local modelHash = GetHashKey(model)
     if not IsModelValid(modelHash) then
         print("^1[SPAWN] Modèle invalide: " .. model)
         return
     end
-    
+
     -- Charger le modèle
     RequestModel(modelHash)
     local timeout = 0
@@ -31,12 +43,12 @@ RegisterNetEvent("spawn:client:applyCharacter", function(model, pos, heading, ou
         Wait(50)
         timeout = timeout + 1
     end
-    
+
     if not HasModelLoaded(modelHash) then
         print("^1[SPAWN] Échec chargement modèle")
         return
     end
-    
+
     -- Charger les collisions
     RequestCollisionAtCoord(pos.x, pos.y, pos.z)
     timeout = 0
@@ -44,23 +56,23 @@ RegisterNetEvent("spawn:client:applyCharacter", function(model, pos, heading, ou
         Wait(50)
         timeout = timeout + 1
     end
-    
+
     -- Appliquer le modèle
     SetPlayerModel(PlayerId(), modelHash)
     SetModelAsNoLongerNeeded(modelHash)
-    
+
     -- Positionner le joueur
     local ped = PlayerPedId()
     NetworkResurrectLocalPlayer(pos.x, pos.y, pos.z, heading, true, true)
     SetEntityCoordsNoOffset(ped, pos.x, pos.y, pos.z, false, false, false, true)
     SetEntityHeading(ped, heading)
     SetEntityVisible(ped, true, false)
-    
+
     -- Sauvegarder position
     if Position and Position.save then
         Position.save()
     end
-    
+
     print("^2[SPAWN] Personnage spawné avec succès")
     TriggerServerEvent("spawn:server:confirmComplete")
 end)

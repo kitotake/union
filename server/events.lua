@@ -1,3 +1,5 @@
+local config = exports.union:GetConfig()
+
 RegisterNetEvent('spawn:server:pingSQL', function()
     local src = source
     exports.oxmysql:query('SELECT 1', {}, function(result)

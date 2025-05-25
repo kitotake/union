@@ -47,8 +47,10 @@ CreateThread(function()
         log("SPAWN", "En attente de NetworkIsPlayerActive...")
     end
 
-    RequestLastSavedPosition()
+    ShutdownLoadingScreen()
+    ShutdownLoadingScreenNui()
 
+    log("SPAWN", "Début du chargement du modèle temporaire...")
     local tempModel = Config.temporaryModel or "player_zero"
     RequestModel(GetHashKey(tempModel))
 
@@ -71,15 +73,11 @@ CreateThread(function()
         Wait(500)
         log("SPAWN", "En attente du Ped...")
     end
-
-    local safeCoords = vector3(-268.5, -957.8, 31.2)
-    RequestCollisionAtCoord(safeCoords.x, safeCoords.y, safeCoords.z)
-    log("SPAWN", "Chargement de la collision...")
-
+    
     local timer = 0
     while not HasCollisionLoadedAroundEntity(PlayerPedId()) and timer < 10000 do
         Wait(500)
-        timer += 500
+        timer = timer + 500 
     end
 
     if timer >= 10000 then
