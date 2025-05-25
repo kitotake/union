@@ -12,6 +12,9 @@ version "0.0.1"
 lua54 'yes'
 
 shared_scripts {
+	'shared/client/webhooks.lua',
+	'shared/client/*.lua',
+	'shared/lange/*.lua',
 	'shared/*.lua'
 }
 

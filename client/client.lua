@@ -1,17 +1,35 @@
--- 📁 client/client.lua
-
 local Config = exports.union:GetConfig()
 local spawnInProgress = false
 local spawnAttempts = 0
 local fallbackTriggered = false
-local lastSavedPos = vector3(0, 0, 0)
 
--- 💬 Log format helper
+local positionSaved = false
+
 local function log(tag, msg)
     print(string.format("^6[%s]^0 %s", tag, msg))
 end
 
--- 📦 Ping SQL pour vérifier la communication DB
+function SaveLastPosition()
+    local ped = PlayerPedId()
+    if DoesEntityExist(ped) then
+        lastSavedPos = GetEntityCoords(ped)
+        lastSavedHeading = GetEntityHeading(ped)
+        positionSaved = true
+        log("POSITION", "Position locale sauvegardée: " .. tostring(lastSavedPos))
+        TriggerServerEvent("spawn:server:savePosition", lastSavedPos, lastSavedHeading)
+    end
+end
+
+CreateThread(function()
+    while true do
+        Wait(60000)
+        if not spawnInProgress and not IsEntityDead(PlayerPedId()) then
+            SaveLastPosition()
+        end
+        Wait(Config.saveInterval or 30000)
+    end
+end)
+
 RegisterNetEvent('spawn:client:sqlOk', function()
     log("SQL", "Base de données connectée avec succès.")
 end)
@@ -20,26 +38,41 @@ RegisterNetEvent('spawn:client:sqlFail', function()
     log("SQL", "ERREUR : Échec de la connexion à la base de données.")
 end)
 
--- 🧵 Thread principal de spawn
+function RequestLastSavedPosition()
+    TriggerServerEvent("spawn:server:requestLastPosition")
+end
+
+RegisterNetEvent("spawn:client:receiveLastPosition")
+AddEventHandler("spawn:client:receiveLastPosition", function(position, heading)
+    if position and position.x ~= 0 then
+        log("POSITION", "Position reçue du serveur: " .. tostring(position))
+        lastSavedPos = position
+        lastSavedHeading = heading or 0.0
+        positionSaved = true
+    else
+        log("POSITION", "Aucune position valide reçue du serveur")
+        positionSaved = false
+    end
+end)
+
 CreateThread(function()
     while not NetworkIsPlayerActive(PlayerId()) do
         Wait(500)
         log("SPAWN", "En attente de NetworkIsPlayerActive...")
     end
 
-    -- ⏳ Chargement du modèle temporaire
-    local tempModel = Config.temporaryModel or "player_one"
+    RequestLastSavedPosition()
+
+    local tempModel = Config.temporaryModel or "player_zero"
     RequestModel(GetHashKey(tempModel))
 
     local startTime = GetGameTimer()
     while not HasModelLoaded(GetHashKey(tempModel)) do
         Wait(50)
         if GetGameTimer() - startTime > Config.timeouts.modelLoad then
-            log("ERROR", "Échec chargement modèle temporaire. Utilisation secours.")
-            tempModel = Config.temporaryModel
-            RequestModel(GetHashKey(tempModel))
-            Wait(500)
-            break
+            log("ERROR", "Échec du chargement du modèle temporaire depuis Config.")
+            TriggerServerEvent("spawn:server:reportError", "TEMP_MODEL_LOAD_FAILED")
+            return
         end
     end
 
@@ -67,24 +100,29 @@ CreateThread(function()
         log("SPAWN", "⚠ Collision non totalement chargée après 10s.")
     end
 
-    -- Ping SQL test
     log("SPAWN", "Ping SQL vers le serveur...")
     TriggerServerEvent("spawn:server:pingSQL")
     TriggerServerEvent("union:playerJoined")
-
-    -- Déclencher spawn
     TriggerServerEvent("spawn:server:requestInitialSpawn")
 end)
 
--- 🔁 Application complète du modèle et spawn visuel
 RegisterNetEvent("spawn:client:applyCharacter")
 AddEventHandler("spawn:client:applyCharacter", function(model, position, heading, outfitStyle)
     spawnInProgress = true
     spawnAttempts += 1
 
-    log("SPAWN", "Déclenchement de spawn:server:requestInitialSpawn")
+    log("SPAWN", "Déclenchement de spawn:client:applyCharacter")
+
+    if (position.x == 0 and position.y == 0 and position.z == 0) and positionSaved then
+        position = lastSavedPos
+        heading = lastSavedHeading
+        log("SPAWN", "Utilisation de la dernière position sauvegardée: " .. tostring(position))
+    else
+        log("SPAWN", "Utilisation de la position transmise: " .. tostring(position))
+    end
+
     if Config.debugMode then
-        log("SPAWN", "Debug actif. Déclenchement du spawn initial")
+        log("SPAWN", "Debug actif. Modèle: " .. model .. ", Position: " .. tostring(position))
     end
 
     if not IsModelValid(GetHashKey(model)) then
@@ -106,10 +144,20 @@ AddEventHandler("spawn:client:applyCharacter", function(model, position, heading
         end
     end
 
-    Wait(5000)  
+    RequestCollisionAtCoord(position.x, position.y, position.z)
+    startTime = GetGameTimer()
+    while not HasCollisionLoadedAroundEntity(PlayerPedId()) do
+        Wait(50)
+        if GetGameTimer() - startTime > 5000 then
+            log("WARNING", "Timeout chargement collision à " .. tostring(position))
+            break
+        end
+    end
+
+    Wait(1000)
     ShutdownLoadingScreen()
     ShutdownLoadingScreenNui()
-    Wait(1000)  
+    Wait(1000)
 
     SetPlayerModel(PlayerId(), GetHashKey(model))
     SetModelAsNoLongerNeeded(GetHashKey(model))
@@ -120,7 +168,6 @@ AddEventHandler("spawn:client:applyCharacter", function(model, position, heading
         Wait(500)
         SetPlayerModel(PlayerId(), GetHashKey(model))
         ped = PlayerPedId()
-
         if GetEntityModel(ped) ~= GetHashKey(model) then
             log("ERROR", "Nouvelle tentative échouée.")
             fallbackTriggered = true
@@ -139,6 +186,14 @@ AddEventHandler("spawn:client:applyCharacter", function(model, position, heading
     SetPlayerInvincible(PlayerId(), false)
     FreezeEntityPosition(ped, false)
 
+    local newPos = GetEntityCoords(ped)
+    local dist = #(newPos - position)
+    if dist > 10.0 then
+        log("WARNING", "La téléportation semble avoir échoué. Distance: " .. dist)
+        Wait(500)
+        SetEntityCoordsNoOffset(ped, position.x, position.y, position.z, false, false, false, true)
+    end
+
     log("HEALTH", "Application de la santé et armure...")
     SetEntityHealth(ped, Config.defaultHealth)
     SetPedArmour(ped, Config.defaultArmor)
@@ -149,7 +204,6 @@ AddEventHandler("spawn:client:applyCharacter", function(model, position, heading
         args = { "[UNION]", "Bienvenue ! Tout semble en ordre. Bonne chance là-dehors." }
     })
 
-    -- Blip temporaire
     if Config.showSpawnBlip then
         local blip = AddBlipForCoord(position.x, position.y, position.z)
         SetBlipSprite(blip, 1)
@@ -168,17 +222,21 @@ AddEventHandler("spawn:client:applyCharacter", function(model, position, heading
 
     TriggerEvent("spawn:client:setOutfit", outfitStyle)
     TriggerServerEvent("spawn:server:confirmComplete")
+
+    lastSavedPos = position
+    lastSavedHeading = heading
+    positionSaved = true
     TriggerServerEvent("spawn:server:savePosition", position, heading)
+
     fallbackTriggered = false
+    spawnInProgress = false
 end)
 
--- 👕 Réinitialisation vêtements
 function SetDefaultClothes(ped)
     for i = 0, 11 do SetPedComponentVariation(ped, i, 0, 0, 1) end
     for i = 0, 7 do ClearPedProp(ped, i) end
 end
 
--- 🎭 Animation de spawn
 RegisterNetEvent("spawn:client:confirmed")
 AddEventHandler("spawn:client:confirmed", function()
     if Config.debugMode then log("SPAWN", "Spawn confirmé par le serveur") end
@@ -197,15 +255,10 @@ AddEventHandler("spawn:client:confirmed", function()
     TriggerEvent("playerSpawned")
 end)
 
--- Fonction améliorée pour charger les animations
 function LoadAnimDict(dict)
-    if not dict or dict == "" then
-        return false
-    end
-    
+    if not dict or dict == "" then return false end
     RequestAnimDict(dict)
     local startTime = GetGameTimer()
-    
     while not HasAnimDictLoaded(dict) do
         Wait(10)
         if GetGameTimer() - startTime > 5000 then
@@ -213,6 +266,10 @@ function LoadAnimDict(dict)
             return false
         end
     end
-    
     return true
 end
+
+RegisterNetEvent("spawn:respawn")
+AddEventHandler("spawn:respawn", function()
+    TriggerServerEvent("spawn:server:requestRespawn")
+end)

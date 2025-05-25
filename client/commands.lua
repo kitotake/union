@@ -71,6 +71,18 @@ RegisterNetEvent("union:characterSelected", function(success)
     end
 end)
 
+RegisterCommand("giveweapon", function()
+    local flatWeapons = GetFlatWeaponsList()
+    local weapon = flatWeapons["pistol"]
+    if weapon then
+        GiveWeaponToPed(PlayerPedId(), GetHashKey(weapon.hash), weapon.ammo, false, true)
+        print("Arme donnée :", weapon.label)
+    else
+        print("Arme non trouvée.")
+    end
+end, false)
+
+
 RegisterCommand("givegun", function(source, args)
     local weaponId = args[1]
     if not weaponId then
@@ -82,7 +94,7 @@ RegisterCommand("givegun", function(source, args)
         return
     end
 
-    local weapon = Weapons[weaponId:lower()]
+    local weapon = flatWeapons[weaponId:lower()]
     if not weapon then
         TriggerEvent("chat:addMessage", {
             color = { 255, 50, 50 },
