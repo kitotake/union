@@ -1,8 +1,93 @@
-print("^6[SPAWN]^0 Lancement du processus de spawn...")
-print("DEBUG: Spawn =", Spawn)
+print("^6[UNION CLIENT] Initialisation...")
 
-if Spawn and Spawn.initialize then
-    Spawn.initialize()
-else
-    print("^1[SPAWN]^0 ERREUR : Spawn.initialize() non trouvé.")
+-- Chargement des modules client
+local modules = {
+    "client/utils.lua",
+    "client/position.lua",
+    "client/spawn.lua",
+    "client/notification.lua"
+}
+
+
+
+for _, module in ipairs(modules) do
+    local chunk = LoadResourceFile(GetCurrentResourceName(), module)
+    if chunk then
+        local func = load(chunk, module)
+        if func then 
+            func() 
+            print("^2[UNION] Module chargé: " .. module)
+        end
+    else
+        print("^1[UNION] Erreur chargement: " .. module)
+    end
 end
+
+-- Auto-join au spawn
+AddEventHandler("playerSpawned", function()
+    Wait(2000)
+    TriggerServerEvent("union:playerJoined")
+end)
+
+
+-- 📁 client/main.lua
+
+local function log(tag, msg)
+    print(("^3[%s]^7 %s"):format(tag, msg))
+end
+
+function SetDefaultClothes(ped)
+    for i = 0, 11 do SetPedComponentVariation(ped, i, 0, 0, 1) end
+    for i = 0, 7 do ClearPedProp(ped, i) end
+end
+
+CreateThread(function()
+    while not NetworkIsPlayerActive(PlayerId()) do
+        Wait(500)
+        log("SPAWN", "En attente de NetworkIsPlayerActive...")
+    end
+
+    RequestLastSavedPosition()
+
+    local tempModel = Config.temporaryModel or "player_zero"
+    RequestModel(GetHashKey(tempModel))
+
+    local startTime = GetGameTimer()
+    while not HasModelLoaded(GetHashKey(tempModel)) do
+        Wait(50)
+        if GetGameTimer() - startTime > Config.timeouts.modelLoad then
+            log("ERROR", "Échec du chargement du modèle temporaire depuis Config.")
+            TriggerServerEvent("spawn:server:reportError", "TEMP_MODEL_LOAD_FAILED")
+            return
+        end
+    end
+
+    SetPlayerModel(PlayerId(), GetHashKey(tempModel))
+    SetModelAsNoLongerNeeded(GetHashKey(tempModel))
+    SetEntityVisible(PlayerPedId(), true, false)
+    log("SPAWN", "Modèle temporaire appliqué.")
+
+    while not DoesEntityExist(PlayerPedId()) do
+        Wait(500)
+        log("SPAWN", "En attente du Ped...")
+    end
+
+    local safeCoords = vector3(-268.5, -957.8, 31.2)
+    RequestCollisionAtCoord(safeCoords.x, safeCoords.y, safeCoords.z)
+    log("SPAWN", "Chargement de la collision...")
+
+    local timer = 0
+    while not HasCollisionLoadedAroundEntity(PlayerPedId()) and timer < 10000 do
+        Wait(500)
+        timer += 500
+    end
+
+    if timer >= 10000 then
+        log("SPAWN", "⚠ Collision non totalement chargée après 10s.")
+    end
+
+    log("SPAWN", "Ping SQL vers le serveur...")
+    TriggerServerEvent("spawn:server:pingSQL")
+    TriggerServerEvent("union:playerJoined")
+    TriggerServerEvent("spawn:server:requestInitialSpawn")
+end)

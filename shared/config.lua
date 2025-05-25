@@ -1,21 +1,21 @@
--- 📁 shared/config.lua
-
 Config = {}
 
+-- Debug & Logging
 Config.debugMode = true
+Config.logLevel = 1 -- 0=DEBUG, 1=INFO, 2=WARN, 3=ERROR
+
+-- Default Values
 Config.defaultHealth = 200
 Config.defaultArmor = 100
 Config.defaultModel = "mp_m_freemode_01"
 Config.femaleModel = "mp_f_freemode_01"
-
 Config.temporaryModel = "player_zero"
-Config.useTemporaryModel = true
-Config.modelTransitionFade = true
 
-Config.spawnDelay = 5000
+-- Spawn Settings
+Config.spawnDelay = 3000
 Config.spawnPos = vector3(-268.5, -957.8, 31.2)
 Config.heading = 90.0
-Config.temporary = vector3(221.5427, -917.5260, 30.6920)
+Config.saveInterval = 30000
 
 Config.outfits = {
     male = {
@@ -37,7 +37,13 @@ Config.outfits = {
 }
 
 
--- ✅ Export client
-exports("GetConfig", function()
-    return Config -- Retourne la variable globale Config
-end)
+
+-- Locale
+Config.locale = "fr"
+
+-- Export pour accès global
+if IsDuplicityVersion() then -- Server
+    exports("GetConfig", function() return Config end)
+else -- Client
+    exports("GetConfig", function() return Config end)
+end

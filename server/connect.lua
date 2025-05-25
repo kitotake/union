@@ -1,10 +1,6 @@
--- server/connect.lua
 union = union or {}
-
--- ⛓️ Initialisation de la table temporaire des licences
 union.tPlayerLicenses = union.tPlayerLicenses or {}
 
--- 📡 Récupération IP du joueur
 local function getPlayerIP(src)
     for i = 0, GetNumPlayerIdentifiers(src) - 1 do
         local id = GetPlayerIdentifier(src, i)
@@ -15,66 +11,46 @@ local function getPlayerIP(src)
     return nil
 end
 
--- 📥 Gestion de la connexion du joueur
 AddEventHandler("playerConnecting", function(sName, setKickReason, deferrals)
     local src = source
     deferrals.defer()
-
-    print("^2[DEBUG] Identifiants détectés pour " .. sName)
-    for i = 0, GetNumPlayerIdentifiers(src) - 1 do
-        print("^2[IDENTIFIER] " .. i .. ": " .. GetPlayerIdentifier(src, i))
-    end
-
-    Wait(0)
-    deferrals.update("Vérification de vos identifiants...")
-
-    -- 🔍 Extraction des identifiants
+    
+    Wait(100)
+    deferrals.update("Vérification des identifiants...")
+    
     local license = GetPlayerIdentifierByType(src, "license")
     local discord = GetPlayerIdentifierByType(src, "discord")
-    local xbl     = GetPlayerIdentifierByType(src, "xbl")
-    local live    = GetPlayerIdentifierByType(src, "live")
-    local fivem   = GetPlayerIdentifierByType(src, "fivem")
-    local ip      = getPlayerIP(src)
-
+    local fivem = GetPlayerIdentifierByType(src, "fivem")
+    local ip = getPlayerIP(src)
+    
+    -- Stockage temporaire
     union.tPlayerLicenses[src] = {
-        license   = license,
-        discord   = discord,
-        fivem     = fivem,
-        ip        = ip
+        license = license,
+        discord = discord,
+        fivem = fivem,
+        ip = ip
     }
-
-    local checks = {
-        { key = license, label = "License FiveM" },
-        { key = discord, label = "Compte Discord" },
-        { key = fivem,   label = "Identifiant FiveM" },
-        { key = ip,      label = "Adresse IP détectable" }
-    }
-
+    
+    -- Vérifications
     local missing = {}
-    for _, check in ipairs(checks) do
-        if not check.key or check.key == "" then
-            table.insert(missing, check.label)
-        end
-    end
-
+    if not license or license == "" then table.insert(missing, "License FiveM") end
+    if not discord or discord == "" then table.insert(missing, "Compte Discord") end
+    if not fivem or fivem == "" then table.insert(missing, "Identifiant FiveM") end
+    
     if #missing > 0 then
-        local msg = ("Connexion refusée : services manquants – %s."):format(table.concat(missing, ", "))
-        sendLogToDiscord(sName, license, ip, discord, fivem)
+        local msg = "Connexion refusée - Services manquants: " .. table.concat(missing, ", ")
         deferrals.done(msg)
         return
     end
-
-    sendSuccessLogToDiscord(sName, license, ip, discord, fivem)
+    
     deferrals.done()
 end)
 
--- 🧹 Nettoyage des identifiants à la déconnexion
-AddEventHandler("playerDropped", function(reason)
+AddEventHandler("playerDropped", function()
     local src = source
     union.tPlayerLicenses[src] = nil
 end)
 
--- 🔧 Fonction d'accès aux identifiants synchronisés
 function union:GetId(pPlayer, idType)
     local t = union.tPlayerLicenses[pPlayer or source]
     if not t then return nil end

@@ -1,4 +1,5 @@
 local playerCharacters = {}
+CharacterData = {}
 local config = exports.union:GetConfig()
 
 function GetPlayerCharacterData(playerId)

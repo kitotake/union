@@ -1,10 +1,5 @@
 -- 📁 server/main.lua
 
--- Charger les fichiers séparés
-dofile("server/character_data.lua")
-dofile("server/spawn_functions.lua")
-dofile("server/events.lua")
-dofile("server/commands.lua")
 
 -- Événements supplémentaires
 AddEventHandler("playerDropped", function(reason)

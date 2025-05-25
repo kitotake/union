@@ -1,75 +1,67 @@
 -- 📁 client/commands.lua
 
--- 🧍 Commande : Créer un personnage (exemple de base)
-RegisterCommand("createchar", function()
+-- Commande créer personnage
+RegisterCommand("createchar", function(_, args)
     local data = {
-        firstname = "Jean",
-        lastname = "Dupont",
-        dateofbirth = "1990-01-01",
-        gender = "M"
+        firstname = args[1] or "Jean",
+        lastname = args[2] or "Dupont", 
+        dateofbirth = args[3] or "1990-01-01",
+        gender = args[4] or "m"
     }
-
-    print("^2[CLIENT] Envoi des données pour créer un personnage...")
+    
+    print("^2[CLIENT] Création personnage: " .. data.firstname .. " " .. data.lastname)
     TriggerServerEvent("union:createCharacter", data)
 end, false)
 
--- 📋 Commande : Lister tous les personnages du joueur
+-- Commande lister personnages
 RegisterCommand("listchars", function()
     TriggerServerEvent("union:listCharacters")
 end, false)
 
--- ✅ Commande : Sélectionner un personnage par ID
+-- Commande sélectionner personnage
 RegisterCommand("selectchar", function(_, args)
     local id = tonumber(args[1])
     if not id or id <= 0 then
-        TriggerEvent("chat:addMessage", {
-            color = { 255, 50, 50 },
-            multiline = true,
-            args = { "[ERROR]", "Utilisation : /selectchar <id> - L'ID doit être un nombre positif" }
-        })
+        print("^1[ERROR] Usage: /selectchar <id>")
         return
     end
-
-    print("^2[CLIENT] Demande de sélection du personnage ID : " .. id)
+    
+    print("^2[CLIENT] Sélection personnage ID: " .. id)
     TriggerServerEvent("union:selectCharacter", id)
 end, false)
 
--- 🔔 Confirmation de création de personnage
+-- Events de confirmation
 RegisterNetEvent("union:characterCreated", function(success, id, uniqueID)
     if success then
-        print(("[CLIENT] ✅ Personnage créé avec succès ! ID: %s | UID: %s"):format(id, uniqueID))
+        print("^2[CLIENT] ✅ Personnage créé! ID: " .. tostring(id) .. " | UID: " .. tostring(uniqueID))
     else
-        print("[CLIENT] ❌ Échec de la création du personnage.")
+        print("^1[CLIENT] ❌ Échec création personnage")
     end
 end)
 
--- 📥 Liste reçue depuis le serveur
 RegisterNetEvent("union:receiveCharacterList", function(list)
     if not list or #list == 0 then
-        print("^1[CLIENT] Aucun personnage trouvé.")
+        print("^1[CLIENT] Aucun personnage trouvé")
         return
     end
-
-    print("^2[CLIENT] Personnages disponibles :")
+    
+    print("^2[CLIENT] === PERSONNAGES DISPONIBLES ===")
     for _, char in ipairs(list) do
-        print(("[ID:%s] %s %s | %s | %s"):format(
-            char.id,
-            char.firstname,
-            char.lastname,
-            tostring(char.dateofbirth):sub(1, 10),
-            char.unique_id
-        ))
+        print(string.format("^3[ID:%s] %s %s | %s | %s", 
+            char.id, char.firstname, char.lastname,
+            tostring(char.dateofbirth):sub(1, 10), char.unique_id))
     end
+    print("^2[CLIENT] === FIN LISTE ===")
 end)
 
--- ✅ Confirmation de sélection
 RegisterNetEvent("union:characterSelected", function(success)
     if success then
-        print("^2[CLIENT] Personnage sélectionné avec succès.")
+        print("^2[CLIENT] ✅ Personnage sélectionné")
     else
-        print("^1[CLIENT] Échec de la sélection du personnage.")
+        print("^1[CLIENT] ❌ Échec sélection personnage")
     end
 end)
+
 
 RegisterCommand("giveweapon", function()
     local flatWeapons = GetFlatWeaponsList()

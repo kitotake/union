@@ -18,33 +18,30 @@ CREATE TABLE IF NOT EXISTS `users` (
 );
 
 
-
-
 -- Table des personnages
 CREATE TABLE IF NOT EXISTS `characters` (
- `id` INT(11) NOT NULL AUTO_INCREMENT,
-	`user_id` VARCHAR(50) NULL DEFAULT NULL COLLATE 'utf8mb4_0900_ai_ci',
-	`firstname` VARCHAR(50) NOT NULL COLLATE 'utf8mb4_0900_ai_ci',
-	`lastname` VARCHAR(50) NOT NULL COLLATE 'utf8mb4_0900_ai_ci',
-	`dateofbirth` DATE NOT NULL,
-	`gender` ENUM('M','F') NOT NULL COLLATE 'utf8mb4_0900_ai_ci',
-	`model` VARCHAR(50) NULL DEFAULT NULL COLLATE 'utf8mb4_0900_ai_ci',
-	`position_x` DOUBLE NULL DEFAULT NULL,
-	`position_y` DOUBLE NULL DEFAULT NULL,
-	`position_z` DOUBLE NULL DEFAULT NULL,
-	`heading` DOUBLE NULL DEFAULT NULL,
-	`health` INT(11) NULL DEFAULT '200',
-	`armor` INT(11) NULL DEFAULT '0',
-	`job` VARCHAR(50) NULL DEFAULT NULL COLLATE 'utf8mb4_0900_ai_ci',
-	`job_grade` INT(11) NULL DEFAULT NULL,
-	`created_at` TIMESTAMP NULL DEFAULT current_timestamp(),
-	`last_played` TIMESTAMP NULL DEFAULT NULL,
-	`unique_id` VARCHAR(20) NULL DEFAULT NULL COLLATE 'utf8mb4_0900_ai_ci',
+    `id` INT NOT NULL AUTO_INCREMENT,
+    `user_id` VARCHAR(50) NOT NULL, -- ← licence FiveM directement
+    `unique_id` VARCHAR(20) NOT NULL UNIQUE,
+	 `firstname` VARCHAR(50) NOT NULL,
+    `lastname` VARCHAR(50) NOT NULL,
+    `dateofbirth` DATE NOT NULL,
+    `gender` ENUM('M','F') NOT NULL,
+    `model` VARCHAR(50) DEFAULT NULL,
+    `position_x` DOUBLE DEFAULT NULL,
+    `position_y` DOUBLE DEFAULT NULL,
+    `position_z` DOUBLE DEFAULT NULL,
+    `heading` DOUBLE DEFAULT NULL,
+    `health` INT DEFAULT 200,
+    `armor` INT DEFAULT 0,
+    `is_dead` tinyint(1) DEFAULT 0,
+    `job` VARCHAR(50) DEFAULT NULL,
+    `job_grade` INT DEFAULT NULL,
+    `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    `last_played` TIMESTAMP NULL DEFAULT NULL,
     PRIMARY KEY (`id`),
-    KEY `user_id` (`user_id`),
-    KEY `job_grade_lookup` (`job`, `job_grade`)
+    KEY `user_id` (`user_id`)
 );
-
 
 
 -- Apparence des personnages

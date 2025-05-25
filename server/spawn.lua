@@ -1,20 +1,20 @@
-local config = exports['union']:GetConfig()
-local characterData = require("character_data")
-local spawnFunctions = require("spawn_functions")
 
--- 📥 Réception de la demande de respawn
+
+-- Utilise directement les tables globales
+local config = exports['union']:GetConfig()
+
 RegisterServerEvent("spawn:server:requestRespawn")
 AddEventHandler("spawn:server:requestRespawn", function(requestedModel)
     local src = source
-    local charData = characterData.GetPlayerCharacterData(src)
+    local charData = CharacterData.GetPlayerCharacterData(src)
     if not charData then return end
 
     local model = requestedModel or charData.model or config.defaultModel
     charData.model = model
-    characterData.SavePlayerCharacterData(src, charData)
+    CharacterData.SavePlayerCharacterData(src, charData)
 
-    local pos, head = spawnFunctions.GetSpawnPosition(src, false)
-    spawnFunctions.TriggerPlayerSpawn(src, model, pos, head, charData.outfit, 3000, true)
+    local pos, head = SpawnFunctions.GetSpawnPosition(src, false)
+    SpawnFunctions.TriggerPlayerSpawn(src, model, pos, head, charData.outfit, 3000, true)
 end)
 
 -- ✅ Confirmer la fin du spawn client
