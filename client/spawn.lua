@@ -13,11 +13,14 @@ end
 RegisterNetEvent("spawn:client:applyCharacter", function(model, pos, heading, outfitStyle)
     print("^2[SPAWN] Application du personnage: " .. model)
 
+    local usedFallback = false
+
     -- Sécurité : fallback si `pos` ou `heading` sont absents
     if not pos then
         print("^1[SPAWN] ⚠ Position reçue est NIL, fallback utilisé")
         pos = Config.spawnPos
         heading = Config.spawnHeading
+        usedFallback = true
     end
 
     -- Vérifier si on a une position sauvegardée
@@ -26,7 +29,11 @@ RegisterNetEvent("spawn:client:applyCharacter", function(model, pos, heading, ou
         if hasSaved and lastPos then
             pos = lastPos
             heading = lastHeading or heading
-            print("^3[SPAWN] Utilisation position sauvegardée")
+            if usedFallback then
+                print("^3[SPAWN] Fallback remplacé par position sauvegardée")
+            else
+                print("^3[SPAWN] Utilisation position sauvegardée")
+            end
         end
     end
 
@@ -42,6 +49,12 @@ RegisterNetEvent("spawn:client:applyCharacter", function(model, pos, heading, ou
     while not HasModelLoaded(modelHash) and timeout < 100 do
         Wait(50)
         timeout = timeout + 1
+    end
+
+
+    function SetDefaultClothes(ped)
+        for i = 0, 11 do SetPedComponentVariation(ped, i, 0, 0, 1) end
+        for i = 0, 7 do ClearPedProp(ped, i) end
     end
 
     if not HasModelLoaded(modelHash) then
@@ -61,18 +74,27 @@ RegisterNetEvent("spawn:client:applyCharacter", function(model, pos, heading, ou
     SetPlayerModel(PlayerId(), modelHash)
     SetModelAsNoLongerNeeded(modelHash)
 
-    -- Positionner le joueur
-    local ped = PlayerPedId()
-    NetworkResurrectLocalPlayer(pos.x, pos.y, pos.z, heading, true, true)
-    SetEntityCoordsNoOffset(ped, pos.x, pos.y, pos.z, false, false, false, true)
-    SetEntityHeading(ped, heading)
-    SetEntityVisible(ped, true, false)
-
-    -- Sauvegarder position
-    if Position and Position.save then
-        Position.save()
-    end
-
-    print("^2[SPAWN] Personnage spawné avec succès")
-    TriggerServerEvent("spawn:server:confirmComplete")
+       -- Positionner le joueur
+       local ped = PlayerPedId()
+       NetworkResurrectLocalPlayer(pos.x, pos.y, pos.z, heading, true, true)
+       SetEntityCoordsNoOffset(ped, pos.x, pos.y, pos.z, false, false, false, true)
+       SetEntityHeading(ped, heading)
+       SetEntityVisible(ped, true, false)
+   
+       SetDefaultClothes(ped)
+   
+       -- Assurer que le joueur peut bouger après spawn
+       FreezeEntityPosition(ped, false)
+       SetEntityCollision(ped, true, true)
+       SetEntityInvincible(ped, false)
+       ClearPedTasksImmediately(ped)
+   
+       -- Sauvegarder position
+       if Position and Position.save then
+           Position.save()
+       end
+   
+       print("^2[SPAWN] Personnage spawné avec succès")
+       TriggerServerEvent("spawn:server:confirmComplete")
+   
 end)

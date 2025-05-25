@@ -36,11 +36,6 @@ local function log(tag, msg)
     print(("^3[%s]^7 %s"):format(tag, msg))
 end
 
-function SetDefaultClothes(ped)
-    for i = 0, 11 do SetPedComponentVariation(ped, i, 0, 0, 1) end
-    for i = 0, 7 do ClearPedProp(ped, i) end
-end
-
 CreateThread(function()
     while not NetworkIsPlayerActive(PlayerId()) do
         Wait(500)
