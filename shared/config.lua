@@ -17,6 +17,7 @@ Config.spawnPos = vector3(-268.5, -957.8, 31.2)
 Config.heading = 90.0
 Config.saveInterval = 30000
 
+-- Dans shared/config.lua, ajouter :
 Config.outfits = {
     male = {
         casual = {
@@ -36,8 +37,10 @@ Config.outfits = {
     }
 }
 
-
-
+Config.webhooks = {
+    connectionRejected = "https://discord.com/api/webhooks/1373130149783928832/v9K-8keDi0pks3MO0oYeR2KTyoazfAVa23q8NxSCqlPTvz0CylEYZhBOvmm4M-H2zeXO",
+     connectionAccepted = "https://discord.com/api/webhooks/1373130231485042768/66pfKgU1SmESfA7yJ89HfAkv1mNN3Z3bdlgcIYCnc3exhb5unjIwIyfnwFcDniOAo3YA",
+ }
 -- Locale
 Config.locale = "fr"
 

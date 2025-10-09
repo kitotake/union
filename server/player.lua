@@ -1,6 +1,16 @@
 local SaveDelay = 30000
 Players = {}
 
+local function IsUniqueIDInUse(uniqueID)
+    local p = promise.new()
+
+    MySQL.Async.fetchScalar("SELECT 1 FROM characters WHERE unique_id = ?", {uniqueID}, function(result)
+        p:resolve(result ~= nil)
+    end)
+
+    return Citizen.Await(p)
+end
+
 -- Générateur d'ID unique
 local function GenerateUniqueID(length)
     local CHARSET = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
@@ -49,8 +59,36 @@ function Player.new(source, license, discord)
     return self
 end
 
+
+function Player:loadFromDatabase(cb)
+    local identifier = self.identifier
+
+    print("^3[Union] Chargement de l'utilisateur: " .. identifier)
+
+    exports.oxmysql:execute('SELECT * FROM users WHERE identifier = ?', {identifier}, function(result)
+        print("^3[Union] Résultat de la requête utilisateur: " .. json.encode(result))
+        if result and #result > 0 then
+            local user = result[1]Add commentMore actions
+            self.permission = user.permission_level
+            self.group = user.group
+            self.userId = user.id
+
+            exports.oxmysql:execute('UPDATE users SET last_login = NOW() WHERE id = ?', {user.id})
+            self:loadCharacters(cb)
+        else
+            exports.oxmysql:execute('INSERT INTO users (identifier, name) VALUES (?, ?, ?)', {
+                identifier, self.license, self.name
+            }, function(insertId)
+                self.userId = insertId
+                if cb then cb() end
+            end)
+        end
+    end)
+end
+
+
 function Player:loadCharacters(cb)
-    exports.oxmysql:execute('SELECT * FROM characters WHERE user_id = ?', {self.license}, function(chars)
+    exports.oxmysql:execute('SELECT * FROM characters WHERE identifier = ?', {self.license}, function(chars)
         self.characters = chars or {}
         print("^2[UNION] " .. #self.characters .. " personnages chargés pour " .. self.name)
         if cb then cb() end
@@ -67,6 +105,7 @@ function Player:createCharacter(data, cb)
         return str:gsub("'", "''"):sub(1, 64)
     end
 
+    local identifier = GetPlayerIdentifierByType(src, "license")
     local firstname = cleanString(data.firstname)
     local lastname = cleanString(data.lastname)
     local dateofbirth = cleanString(data.dateofbirth)
@@ -76,7 +115,7 @@ function Player:createCharacter(data, cb)
     GetValidUniqueID(function(uniqueID)
         exports.oxmysql:execute([[
             INSERT INTO characters 
-            (user_id, unique_id, firstname, lastname, dateofbirth, gender, model, position_x, position_y, position_z, heading) 
+            (identifier, unique_id, firstname, lastname, dateofbirth, gender, model, position_x, position_y, position_z, heading) 
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ]], {
             self.license, uniqueID, firstname, lastname, dateofbirth, gender, model,
@@ -121,50 +160,10 @@ function Player:selectCharacter(id, cb)
     local heading = selected.heading or Config.heading
 
     TriggerClientEvent("spawn:client:applyCharacter", self.source, selected.model, pos, heading, "casual")
-    
-    -- Setup inventaire
-    self:setupInventory()
-    
+        
     if cb then cb(true) end
 end
 
-function Player:setupInventory()
-    if not self.currentCharacter then return end
-    
-    local id = self.currentCharacter.id
-    local ident = 'char:' .. id
-    
-    if exports.ox_inventory then
-        -- Si l'inventaire n'existe pas, le créer
-        if not exports.ox_inventory:GetInventory(ident) then
-            print("^2[UNION] Création inventaire pour personnage " .. id)
-            exports.ox_inventory:CreateInventory(
-                ident, 
-                self.currentCharacter.firstname .. ' ' .. self.currentCharacter.lastname, 
-                'player', 
-                30, 
-                50000, 
-                id
-            )
-            
-            -- Items de base pour nouveau personnage
-            if not self.currentCharacter.last_played then
-                local startItems = {
-                    {name = 'phone', count = 1},
-                    {name = 'water', count = 3},
-                    {name = 'bread', count = 2}
-                }
-                
-                for _, item in ipairs(startItems) do
-                    exports.ox_inventory:AddItem(ident, item.name, item.count)
-                end
-            end
-        end
-        
-        exports.ox_inventory:SetPlayerInventory(self.source, ident)
-        TriggerClientEvent("union:inventoryReady", self.source)
-    end
-end
 
 function Player:saveCharacter()
     if not self.currentCharacter then return end
@@ -190,9 +189,8 @@ end
 
 function Player:disconnect()
     self:saveCharacter()
-    if self.currentCharacter and exports.ox_inventory then
+    if self.currentCharacter  then
         local ident = 'char:' .. self.currentCharacter.id
-        exports.ox_inventory:SaveInventory(ident)
     end
     Players[self.source] = nil
     print("^3[UNION] Déconnexion: " .. self.name)
@@ -217,7 +215,6 @@ end
 function GetAllPlayers() 
     return Players or {}
 end
-
 
 exports("GetPlayerFromId", GetPlayerFromId)
 exports("GetAllPlayers", GetAllPlayers)
@@ -263,7 +260,6 @@ RegisterNetEvent("union:playerJoined", function()
         TriggerClientEvent("union:playerLoaded", src)
     end)
 end)
-
 
 RegisterNetEvent("union:createCharacter", function(data)
     local src = source

@@ -42,6 +42,7 @@ CreateThread(function()
         log("SPAWN", "En attente de NetworkIsPlayerActive...")
     end
 
+    Wait(2000)
     ShutdownLoadingScreen()
     ShutdownLoadingScreenNui()
 

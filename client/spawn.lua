@@ -10,8 +10,9 @@ function Spawn.initialize()
     TriggerServerEvent("spawn:server:requestInitialSpawn")
 end
 
+
 RegisterNetEvent("spawn:client:applyCharacter", function(model, pos, heading, outfitStyle)
-    print("^2[SPAWN] Application du personnage: " .. model)
+   print("^2[SPAWN] Application du personnage: " .. model)
 
     local usedFallback = false
 

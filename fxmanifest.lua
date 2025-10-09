@@ -22,7 +22,9 @@ client_scripts {
     'client/spawn.lua',
     'client/main.lua',
     'client/commands.lua',
-    'client/create.lua'
+    'client/create.lua',
+    'client/perm/permissions.lua'
+    
 }
 
 -- Scripts serveur
@@ -36,7 +38,9 @@ server_scripts {
     'server/spawn.lua',
     'server/admin.lua',
     'server/commands.lua',
-    'server/main.lua'
+    'server/main.lua',
+    'server/perm/permissions.lua',
+    'server/perm/server_permissions.lua'
 }
 
 -- -- Interface utilisateur
