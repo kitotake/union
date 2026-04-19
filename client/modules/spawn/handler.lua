@@ -19,24 +19,24 @@ function Spawn.Handler.setDefaultClothes(ped)
 end
 
 function Spawn.Handler.applyOutfit(ped, outfitStyle)
-    -- This can be expanded later for different outfit styles
     Spawn.Handler.setDefaultClothes(ped)
 end
 
 -- Auto-initialize spawn on player enter world
 CreateThread(function()
+    -- Attendre que le joueur soit actif sur le réseau
     while not NetworkIsPlayerActive(PlayerId()) do
         Wait(100)
     end
-    
+
     Wait(2000)
     ShutdownLoadingScreen()
     ShutdownLoadingScreenNui()
-    
-    -- Spawn temporary model while waiting
+
+    -- Charger le modèle temporaire (pendant le chargement des données)
     local tempModel = Config.spawn.temporaryModel
     RequestModel(GetHashKey(tempModel))
-    
+
     local startTime = GetGameTimer()
     while not HasModelLoaded(GetHashKey(tempModel)) do
         Wait(50)
@@ -45,10 +45,34 @@ CreateThread(function()
             break
         end
     end
-    
+
     SetPlayerModel(PlayerId(), GetHashKey(tempModel))
     SetModelAsNoLongerNeeded(GetHashKey(tempModel))
-    
-    Wait(500)
+
+    -- Notifier le serveur que le joueur est prêt
+    -- Le serveur va créer l'entrée dans PlayerManager et charger les données
+    TriggerServerEvent("union:player:joined")
+
+    -- Attendre que le serveur confirme le chargement du joueur
+    -- avant de demander le spawn
+    local loaded = false
+    RegisterNetEvent("union:player:loaded", function()
+        loaded = true
+    end)
+
+    -- Timeout de sécurité : 10 secondes max
+    local timeout = GetGameTimer() + 10000
+    while not loaded and GetGameTimer() < timeout do
+        Wait(100)
+    end
+
+    if not loaded then
+        Logger:error("Player load timeout - forcing spawn anyway")
+    end
+
+    Client.isReady = true
+    TriggerEvent("union:client:ready")
+    Logger:info("Client ready, requesting spawn")
+
     Spawn.initialize()
 end)

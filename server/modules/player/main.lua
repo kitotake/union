@@ -14,14 +14,12 @@ function Player.new(source)
     self.name = self.identifiers.name
     self.ip = self.identifiers.ip
     
-    -- Data
     self.userId = nil
     self.characters = {}
     self.currentCharacter = nil
     self.permission = 0
     self.group = "user"
     
-    -- State
     self.isLoading = true
     self.isSpawned = false
     self.lastActivity = os.time()
@@ -47,7 +45,6 @@ function Player:loadFromDatabase(callback)
                 self.permission = result.permission_level or 0
                 self.group = result.group or "user"
                 
-                -- Update last login
                 Database.execute(
                     "UPDATE users SET last_login = NOW() WHERE id = ?",
                     {self.userId},
@@ -57,7 +54,6 @@ function Player:loadFromDatabase(callback)
                 Player.logger:info("User loaded: " .. self.name)
                 self:loadCharacters(callback)
             else
-                -- Create new user
                 Database.insert(
                     "INSERT INTO users (identifier, discord, name) VALUES (?, ?, ?)",
                     {self.license, self.discord, self.name},
@@ -84,7 +80,6 @@ function Player:loadCharacters(callback)
         function(characters)
             self.characters = characters or {}
             Player.logger:info(#self.characters .. " characters loaded for " .. self.name)
-            
             if callback then callback(true) end
         end
     )
@@ -133,7 +128,8 @@ function Player:isModerator()
 end
 
 function Player:hasPermission(permission)
-    return PermissionSystem.HasPermission(self.source, permission)
+    -- FIXME : était HasPermission (H majuscule) → n'existait pas
+    return PermissionSystem.hasPermission(self.source, permission)
 end
 
 return Player

@@ -3,8 +3,8 @@ Locale = {}
 Locale.current = Config.locale or "en"
 Locale.translations = {}
 
--- Load all locale files
-local localeDir = "shared/locales/"
+-- FIXME : le dossier s'appelle "locale" (sans 's'), pas "locales"
+local localeDir = "shared/locale/"
 local localeFiles = {
     "en.lua",
     "fr.lua",
@@ -18,14 +18,12 @@ for _, file in ipairs(localeFiles) do
     end
 end
 
--- Get a translated string
 function _t(key, ...)
     local translations = Locale.translations[Locale.current] or Locale.translations["en"] or {}
     local text = translations[key] or key
     return string.format(text, ...)
 end
 
--- Set current locale
 function Locale.setLocale(lang)
     if Locale.translations[lang] then
         Locale.current = lang

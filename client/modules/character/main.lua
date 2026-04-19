@@ -2,7 +2,8 @@
 Character = {}
 local logger = Logger:child("CHARACTER")
 
-Character.list = {}
+-- FIXME renommé : Character.list était à la fois table ET fonction (conflit)
+Character.characters = {}
 Character.current = nil
 
 function Character.list()
@@ -41,14 +42,14 @@ function Character.delete(id)
     TriggerServerEvent("union:character:delete", id)
 end
 
--- Listen for character list
+-- Réception de la liste de personnages
 RegisterNetEvent("union:character:listReceived", function(characters)
-    Character.list = characters
+    Character.characters = characters
     logger:info("Received " .. #characters .. " characters")
     TriggerEvent("union:character:listUpdated", characters)
 end)
 
--- Listen for character creation
+-- Réception après création
 RegisterNetEvent("union:character:created", function(success, id, uniqueId)
     if success then
         logger:info("Character created successfully - ID: " .. id .. ", UID: " .. uniqueId)
@@ -60,7 +61,7 @@ RegisterNetEvent("union:character:created", function(success, id, uniqueId)
     end
 end)
 
--- Listen for character selection
+-- Réception après sélection
 RegisterNetEvent("union:character:selected", function(success, character)
     if success then
         Character.current = character
