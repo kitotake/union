@@ -1,6 +1,4 @@
 -- client/main.lua
-Logger = GetLogger("CLIENT")
-
 Logger:info("Initializing Union Framework client...")
 
 -- Global tables
@@ -18,9 +16,17 @@ CreateThread(function()
     TriggerEvent("union:client:ready")
 end)
 
--- Export Logger
+-- Export functions
 exports("GetLogger", function(tag) 
     return Logger:child(tag)
+end)
+
+exports("GetConfig", function()
+    return Config
+end)
+
+exports("Notify", function(message, type, duration)
+    Notifications.send(message, type, duration)
 end)
 
 Logger:info("Union Framework client initialized")

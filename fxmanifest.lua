@@ -10,23 +10,23 @@ description 'Framework RP complet pour FiveM modular with an architecture'
 -- SHARED SCRIPTS (Available to both client & server)
 -- ============================================
 shared_scripts {
+    'shared/config/config.lua',
     'shared/constants.lua',
     'shared/utils.lua',
+    'shared/locale.lua',
 }
- 
-shared_script 'shared/config/config.lua'
-shared_script 'shared/locale.lua'
- 
+
 -- ============================================
--- CLIENT SCRIPTS
+-- CLIENT SCRIPTS (LOAD ORDER IS IMPORTANT!)
 -- ============================================
 client_scripts {
-    'client/main.lua',
-    
-    -- Components
+    -- Components FIRST (Logger needed by main and other modules)
     'client/components/logger.lua',
     'client/components/position.lua',
     'client/components/permissions.lua',
+    
+    -- Main client entry AFTER components
+    'client/main.lua',
     
     -- Modules
     'client/modules/spawn/main.lua',
@@ -35,30 +35,27 @@ client_scripts {
     'client/modules/character/main.lua',
     'client/modules/character/create.lua',
     'client/modules/character/select.lua',
-
-   -- 'client/modules/vehicle/main.lua',
-   -- 'client/modules/vehicle/commands.lua',
-   -- 'client/modules/vehicle/database.lua',
-
+    
     'client/modules/ui/notification.lua',
     
     'client/modules/commands/character.lua',
     'client/modules/commands/admin.lua',
     'client/modules/commands/debug.lua',
-    ,
 }
- 
+
 -- ============================================
--- SERVER SCRIPTS
+-- SERVER SCRIPTS (LOAD ORDER IS IMPORTANT!)
 -- ============================================
 server_scripts {
     '@oxmysql/lib/MySQL.lua',
-    'server/main.lua',
     
-    -- Components
+    -- Components FIRST (Logger and Database needed by everything)
     'server/components/logger.lua',
     'server/components/database.lua',
     'server/components/utils.lua',
+    
+    -- Main server entry AFTER components
+    'server/main.lua',
     
     -- Auth Module
     'server/modules/auth/connect.lua',
@@ -82,11 +79,6 @@ server_scripts {
     'server/modules/spawn/handler.lua',
     'server/modules/spawn/position.lua',
     
-    -- Vehicle Module
-  --  'server/modules/vehicle/main.lua',
-  --  'server/modules/vehicle/database.lua',
-  --  'server/modules/vehicle/commands.lua',
-
     -- Job Module
     'server/modules/job/main.lua',
     'server/modules/job/database.lua',
@@ -100,7 +92,7 @@ server_scripts {
     'server/modules/permission/groups.lua',
     'server/modules/permission/database.lua',
 }
- 
+
 -- ============================================
 -- SERVER EXPORTS (Public API)
 -- ============================================
@@ -110,7 +102,7 @@ server_exports {
     'GetConfig',
     'GetLogger',
 }
- 
+
 -- ============================================
 -- CLIENT EXPORTS (Public API)
 -- ============================================
@@ -119,3 +111,10 @@ client_exports {
     'Notify',
     'GetLogger',
 }
+
+-- ============================================
+-- DEPENDENCIES
+-- ============================================
+-- ensure oxmysql
+-- ensure ox_inventory (optional)
+-- ensure ox_lib (optional)

@@ -1,6 +1,4 @@
 -- server/main.lua
-Logger = GetLogger("SERVER")
-
 Logger:info("Initializing Union Framework server...")
 
 -- Global tables

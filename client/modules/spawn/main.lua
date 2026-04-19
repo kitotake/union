@@ -53,7 +53,7 @@ RegisterNetEvent("union:spawn:apply", function(characterData)
     
     logger:info("Character spawned successfully")
     TriggerServerEvent("union:spawn:confirm")
-end
+end)
 
 RegisterNetEvent("union:spawn:error", function(errorType)
     logger:error("Spawn error: " .. errorType)
