@@ -1,0 +1,89 @@
+union/
+│
+├── 📄 fxmanifest.lua                    # Resource manifest
+├── 📁 [sql]/ 
+│   └── 📄 union.sql                         # Database schema
+├── 📄 .gitignore                        # Git ignore rules
+│
+├── 📁 shared/                           # Shared code
+│   ├── 📁 config/
+│   │   └── 📄 config.lua                # Main configuration
+│   │
+│   ├── 📁 locales/
+│   │   ├── 📄 en.lua                    # English strings
+│   │   └── 📄 fr.lua                    # French strings
+│   │
+│   ├── 📄 constants.lua                 # Shared constants
+│   ├── 📄 locale.lua                    # Translation system
+│   └── 📄 utils.lua                     # Shared utilities
+│
+├── 📁 client/                           # Client-side code
+│   ├── 📄 main.lua                      # Entry point
+│   │
+│   ├── 📁 components/
+│   │   ├── 📄 logger.lua                # Logging system
+│   │   ├── 📄 position.lua              # Position management
+│   │   └── 📄 permissions.lua           # Permission checks
+│   │
+│   └── 📁 modules/
+│       ├── 📁 spawn/
+│       │   ├── 📄 main.lua              # Spawn logic
+│       │   └── 📄 handler.lua           # Spawn handling
+│       │
+│       ├── 📁 character/
+│       │   ├── 📄 main.lua              # Character manager
+│       │   ├── 📄 create.lua            # Create interface
+│       │   └── 📄 select.lua            # Select interface
+│       │
+│       ├── 📁 ui/
+│       │   └── 📄 notification.lua      # Notifications
+│       │
+│       └── 📁 commands/
+│           ├── 📄 character.lua         # Character commands
+│           ├── 📄 admin.lua             # Admin commands
+│           └── 📄 debug.lua             # Debug commands
+│
+└── 📁 server/                           # Server-side code
+    ├── 📄 main.lua                      # Entry point
+    │
+    ├── 📁 components/
+    │   ├── 📄 logger.lua                # Logging system
+    │   ├── 📄 database.lua              # DB helpers
+    │   └── 📄 utils.lua                 # Server utils
+    │
+    └── 📁 modules/
+        │
+        ├── 📁 auth/                     # Authentication
+        │   ├── 📄 connect.lua           # Connection handling
+        │   ├── 📄 identifiers.lua       # ID management
+        │   └── 📄 webhooks.lua          # Discord logging
+        │
+        ├── 📁 player/                   # Player management
+        │   ├── 📄 main.lua              # Player class
+        │   ├── 📄 manager.lua           # Player manager
+        │   └── 📄 persistence.lua       # Auto-save
+        │
+        ├── 📁 character/                # Character system
+        │   ├── 📄 main.lua              # Core logic
+        │   ├── 📄 create.lua            # Creation validation
+        │   ├── 📄 select.lua            # Selection logic
+        │   ├── 📄 appearance.lua        # Appearance system
+        │   └── 📄 database.lua          # Character DB
+        │
+        ├── 📁 spawn/                    # Spawn system
+        │   ├── 📄 main.lua              # Spawn logic
+        │   ├── 📄 handler.lua           # Handlers
+        │   └── 📄 position.lua          # Position saving
+        │
+        ├── 📁 job/                      # Job system
+        │   ├── 📄 main.lua              # Job logic
+        │   └── 📄 database.lua          # Job DB
+        │
+        ├── 📁 bank/                     # Banking system
+        │   ├── 📄 main.lua              # Bank logic
+        │   └── 📄 database.lua          # Bank DB
+        │
+        └── 📁 permission/               # Permission system
+            ├── 📄 main.lua              # Permission logic
+            ├── 📄 groups.lua            # Group definitions
+            └── 📄 database.lua          # Permission DB
