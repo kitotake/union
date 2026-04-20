@@ -28,19 +28,13 @@ function ServerUtils.getPlayerName(source)
     return GetPlayerName(source) or "Unknown"
 end
 
-function ServerUtils.generateUniqueId(length)
-    local CHARSET = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
-    local id = ''
-    for i = 1, length or 12 do
-        local rand = math.random(#CHARSET)
-        id = id .. CHARSET:sub(rand, rand)
-    end
-    return id
+function ServerUtils.generateUniqueId()
+    return tostring(os.time()) .. tostring(math.random(1000, 9999))
 end
 
 function ServerUtils.validateEmail(email)
     if not email then return false end
-    return email:match("^[^@]+@[^@]+%.%w+$") ~= nil
+    return email:match("^[%w._%+-]+@[%w.-]+%.%a+$") ~= nil
 end
 
 function ServerUtils.validateDate(date)
@@ -72,11 +66,13 @@ function ServerUtils.sendDiscordWebhook(webhookUrl, embed)
         embeds = {embed}
     }
     
-    PerformHttpRequest(webhookUrl, function(err, text, headers)
-        if err ~= 200 then
-            Logger:error("Failed to send Discord webhook: " .. tostring(err))
-        end
-    end, 'POST', json.encode(content), {['Content-Type'] = 'application/json'})
+    PerformHttpRequest(webhookUrl, function(err)
+    if err ~= 200 and err ~= 204 then
+        Logger:error("Discord webhook failed: " .. tostring(err))
+    end
+end, 'POST', json.encode(content), {
+    ['Content-Type'] = 'application/json'
+})
     
     return true
 end

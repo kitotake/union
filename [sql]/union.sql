@@ -1,5 +1,5 @@
 -- Union Framework Database Schema
--- Version: 1.0.0
+-- Version: 3.0.0
 
 -- ============================================
 -- USERS
@@ -27,7 +27,7 @@ CREATE TABLE IF NOT EXISTS `users` (
 CREATE TABLE IF NOT EXISTS `characters` (
     `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
     `identifier` VARCHAR(60) NOT NULL,
-    `unique_id` VARCHAR(36) NOT NULL,
+    `unique_id` VARCHAR(32) NOT NULL,
     `firstname` VARCHAR(50) NOT NULL,
     `lastname` VARCHAR(50) NOT NULL,
     `dateofbirth` DATE NOT NULL,
@@ -67,7 +67,7 @@ CREATE TABLE IF NOT EXISTS `characters` (
 -- ============================================
 CREATE TABLE IF NOT EXISTS `character_appearances` (
     `id` INT UNSIGNED AUTO_INCREMENT,
-    `unique_id` VARCHAR(36) NOT NULL,
+    `unique_id` VARCHAR(32) NOT NULL,
 
     `skin_data` LONGTEXT,
     `face_features` LONGTEXT,
@@ -86,9 +86,9 @@ CREATE TABLE IF NOT EXISTS `character_appearances` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 
-CREATE TABLE IF NOT EXISTS `` (
+CREATE TABLE IF NOT EXISTS `character_outfits` (
     `id`           INT UNSIGNED NOT NULL AUTO_INCREMENT,
-    `unique_id`    VARCHAR(36)  NOT NULL,
+    `unique_id`    VARCHAR(32)  NOT NULL,
     `name`         VARCHAR(50)  NOT NULL,
     `components`   LONGTEXT,
     `props`        LONGTEXT,
@@ -111,7 +111,7 @@ CREATE TABLE IF NOT EXISTS `` (
 CREATE TABLE IF NOT EXISTS `owned_vehicles` (
     `id` INT UNSIGNED AUTO_INCREMENT,
     `plate` VARCHAR(12) NOT NULL,
-    `unique_id` VARCHAR(36) NOT NULL,
+    `unique_id` VARCHAR(32) NOT NULL,
 
     `vehicle_model` VARCHAR(50) NOT NULL,
     `vehicle_props` LONGTEXT,
@@ -183,7 +183,7 @@ CREATE TABLE IF NOT EXISTS `bank_accounts` (
     `owner_type` VARCHAR(50) NOT NULL,
     `owner_id` VARCHAR(50) NOT NULL,
 
-    `unique_id` VARCHAR(50) NOT NULL,
+    `unique_id` VARCHAR(32) NOT NULL,
     `type` VARCHAR(50) DEFAULT 'personal',
     `balance` BIGINT DEFAULT 0,
 
@@ -203,7 +203,7 @@ CREATE TABLE IF NOT EXISTS `bank_transactions` (
     `id` INT AUTO_INCREMENT,
     `account_id` INT NOT NULL,
 
-    `unique_id` VARCHAR(50) NOT NULL,
+    `unique_id` VARCHAR(32) NOT NULL,
     `amount` BIGINT NOT NULL,
     `description` VARCHAR(255),
 
@@ -240,7 +240,7 @@ CREATE TABLE IF NOT EXISTS `licenses` (
 CREATE TABLE IF NOT EXISTS `user_licenses` (
     `id` INT AUTO_INCREMENT,
     `identifier` VARCHAR(100) NOT NULL,
-    `unique_id` VARCHAR(100) NOT NULL,
+    `unique_id` VARCHAR(32) NOT NULL,
     `type` VARCHAR(50) NOT NULL,
 
     `granted_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
