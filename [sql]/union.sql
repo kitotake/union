@@ -86,6 +86,25 @@ CREATE TABLE IF NOT EXISTS `character_appearances` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 
+CREATE TABLE IF NOT EXISTS `` (
+    `id`           INT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `unique_id`    VARCHAR(36)  NOT NULL,
+    `name`         VARCHAR(50)  NOT NULL,
+    `components`   LONGTEXT,
+    `props`        LONGTEXT,
+    `is_job_outfit` TINYINT(1)  DEFAULT 0,
+    `job_name`     VARCHAR(50)  DEFAULT NULL,
+    `job_grade`    INT          DEFAULT NULL,
+    `created_at`   TIMESTAMP    DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    INDEX `idx_unique_id` (`unique_id`),
+    INDEX `idx_job` (`job_name`, `job_grade`),
+    CONSTRAINT `fk_outfit_char`
+        FOREIGN KEY (`unique_id`)
+        REFERENCES `characters` (`unique_id`)
+        ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 -- ============================================
 -- OWNED VEHICLES
 -- ============================================

@@ -8,6 +8,14 @@ Client = {
     playerState = nil,
 }
 
+-- Wait for all modules to be loaded
+CreateThread(function()
+    Wait(500)
+    Logger:info("Client-side modules loaded successfully")
+    Client.isReady = true
+    TriggerEvent("union:client:ready")
+end)
+
 -- Export functions
 exports("GetLogger", function(tag) 
     return Logger:child(tag)
