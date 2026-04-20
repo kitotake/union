@@ -24,13 +24,25 @@ function ServerUtils.getIdentifier(source, idType)
     end
 end
 
-function ServerUtils.getPlayerName(source)
+-- server/components/utils.lua
+
+local function generateUniqueId()
+    local time = os.time()
+    local rand = math.random(100000, 999999)
+    return time .. "_" .. rand
+end
+
+print("Utils component loaded")
+print("Generated Unique ID: " .. generateUniqueId())
+
+local function getPlayerName(source)
     return GetPlayerName(source) or "Unknown"
 end
 
-function ServerUtils.generateUniqueId()
-    return tostring(os.time()) .. tostring(math.random(1000, 9999))
-end
+print("exports defined: generateUniqueId, getPlayerName")
+-- Export functions
+exports('generateUniqueId', generateUniqueId)
+exports('getPlayerName', getPlayerName)
 
 function ServerUtils.validateEmail(email)
     if not email then return false end

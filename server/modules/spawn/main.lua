@@ -87,6 +87,8 @@ RegisterNetEvent("union:spawn:confirm", function()
     end
 end)
 
+
+
 RegisterNetEvent("union:spawn:error", function(errorType)
     local source = source
     local player = PlayerManager.get(source)

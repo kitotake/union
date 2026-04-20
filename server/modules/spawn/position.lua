@@ -1,13 +1,31 @@
--- server/modules/spawn/position.lua
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- PATCH server/modules/spawn/position.lua (Union)
+-- Fix : [WARN|SPAWN:POSITION] Cannot save position: invalid parameters
+-- Cause : player.currentCharacter est nil quand la position est reçue
+--         (ex : la sauvegarde auto se déclenche avant la sélection de perso)
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
 SpawnPosition = {}
 SpawnPosition.logger = Logger:child("SPAWN:POSITION")
 
 function SpawnPosition.save(player, position, heading)
-    if not player or not player.currentCharacter or not position then
-        SpawnPosition.logger:warn("Cannot save position: invalid parameters")
+    if not player then
+        -- Silencieux : joueur pas encore chargé, normal en début de session
         return false
     end
-    
+
+    if not player.currentCharacter then
+        -- Pas d'avertissement si le joueur n'a simplement pas encore sélectionné
+        -- un personnage (état normal après connexion)
+        SpawnPosition.logger:debug("Position non sauvegardée : aucun personnage sélectionné pour " .. (player.name or "?"))
+        return false
+    end
+
+    if not position then
+        SpawnPosition.logger:warn("Position nil pour " .. player.name)
+        return false
+    end
+
     Database.execute([[
         UPDATE characters SET
         position_x = ?, position_y = ?, position_z = ?, heading = ?
@@ -22,7 +40,7 @@ function SpawnPosition.save(player, position, heading)
             SpawnPosition.logger:error("Failed to save position for " .. player.name)
         end
     end)
-    
+
     return true
 end
 
@@ -51,12 +69,18 @@ end
 RegisterNetEvent("union:position:save", function(position, heading)
     local source = source
     local player = PlayerManager.get(source)
-    
-    if player and position then
-        SpawnPosition.save(player, position, heading)
-        -- Send back to client
-        TriggerClientEvent("union:position:loaded", source, position, heading)
+
+    -- FIX : vérification silencieuse si pas de perso, pas de WARN spam
+    if not player then return end
+    if not player.currentCharacter then
+        -- Ignorer silencieusement, c'est normal avant la sélection
+        return
     end
+    if not position then return end
+
+    SpawnPosition.save(player, position, heading)
+    -- Renvoyer la position confirmée au client
+    TriggerClientEvent("union:position:loaded", source, position, heading)
 end)
 
 return SpawnPosition
