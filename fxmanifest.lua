@@ -13,6 +13,7 @@ shared_scripts {
 
 shared_script 'shared/config/config.lua'
 shared_script 'shared/locale.lua'
+shared_script 'shared/config/webhooks.lua'
 
 client_scripts {
     'client/modules/components/logger.lua',
@@ -33,6 +34,11 @@ client_scripts {
     'client/modules/commands/character.lua',
     'client/modules/commands/admin.lua',
     'client/modules/commands/debug.lua',
+    'client/modules/commands/taginfo.lua',
+    'client/modules/commands/job.lua',
+    'client/modules/commands/bank.lua',
+    'client/modules/commands/vehicle.lua',
+
 }
 
 server_scripts {
@@ -48,7 +54,8 @@ server_scripts {
     'server/modules/auth/connect.lua',
     'server/modules/auth/identifiers.lua',
     'server/modules/auth/webhooks.lua',
-    'server/modules/auth/characters.lua',  -- ✅ AJOUT : manquait
+    'server/modules/auth/characters.lua',
+    'server/modules/auth/whitelist.lua',
 
     -- Player Module
     'server/modules/player/main.lua',
@@ -79,6 +86,14 @@ server_scripts {
     'server/modules/permission/main.lua',
     'server/modules/permission/groups.lua',
     'server/modules/permission/database.lua',
+
+    -- Commands
+    'server/modules/commands/character.lua',
+    'server/modules/commands/admin.lua',
+    'server/modules/commands/debug.lua',
+    'server/modules/commands/taginfo.lua', 
+    'server/modules/commands/job.lua',
+    
 }
 
 server_exports {

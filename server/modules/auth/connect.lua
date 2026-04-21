@@ -1,4 +1,5 @@
 -- server/modules/auth/connect.lua
+
 Auth = Auth or {}
 Auth.logger = Logger:child("AUTH")
 
@@ -8,18 +9,18 @@ Auth.tempIdentifiers = {}
 AddEventHandler("playerConnecting", function(sName, setKickReason, deferrals)
     local src = source
     deferrals.defer()
-    
+
     Auth.logger:info("Player connecting: " .. sName .. " (" .. src .. ")")
-    
+
     Wait(100)
     deferrals.update("Checking identifiers...")
-    
+
     -- Get identifiers
     local license = GetPlayerIdentifierByType(src, "license")
     local discord = GetPlayerIdentifierByType(src, "discord")
     local fivem = GetPlayerIdentifierByType(src, "fivem")
     local ip = ServerUtils.getPlayerIP(src)
-    
+
     -- Store temporarily
     Auth.tempIdentifiers[src] = {
         license = license,
@@ -28,45 +29,93 @@ AddEventHandler("playerConnecting", function(sName, setKickReason, deferrals)
         ip = ip,
         name = sName,
     }
-    
+
     -- Validate required identifiers
     local missing = {}
-    if not license or license == "" then table.insert(missing, "FiveM License") end
-    if not discord or discord == "" then table.insert(missing, "Discord Account") end
-    
+
+    if not license or license == "" then
+        table.insert(missing, "FiveM License")
+    end
+
+    if not discord or discord == "" then
+        table.insert(missing, "Discord Account")
+    end
+
     if #missing > 0 then
         local msg = "Missing: " .. table.concat(missing, ", ")
+
         Auth.logger:warn("Connection rejected for " .. sName .. ": " .. msg)
-        
-        -- Send webhook
-        Auth.sendRejectionWebhook(sName, license, discord, ip, table.concat(missing, ", "))
-        
+
+        Auth.sendRejectionWebhook(
+            sName,
+            license,
+            discord,
+            ip,
+            table.concat(missing, ", ")
+        )
+
         deferrals.done(msg)
         return
     end
-    
-    Auth.logger:info("Connection accepted for " .. sName)
-    Auth.sendAcceptanceWebhook(sName, license, discord, ip)
-    
-    deferrals.done()
+
+    -- =========================
+    -- WHITELIST CHECK (ASYNC)
+    -- =========================
+    deferrals.update("Checking whitelist...")
+
+    Whitelist.check(src, license, sName, deferrals, function(allowed)
+        if not allowed then
+            Auth.logger:warn("Whitelist refused for " .. sName)
+
+            Auth.sendRejectionWebhook(
+                sName,
+                license,
+                discord,
+                ip,
+                "Not whitelisted"
+            )
+
+            deferrals.done("You are not whitelisted on this server.")
+            return
+        end
+
+        -- ACCEPTED
+        Auth.logger:info("Connection accepted for " .. sName)
+
+        Auth.sendAcceptanceWebhook(sName, license, discord, ip)
+
+        deferrals.done()
+    end)
 end)
 
 AddEventHandler("playerDropped", function(reason)
     local src = source
+
+    local name = GetPlayerName(src) or "Unknown"
+
     Auth.tempIdentifiers[src] = nil
-    Auth.logger:info("Player dropped: " .. GetPlayerName(src) .. " (" .. reason .. ")")
+
+    Auth.logger:info("Player dropped: " .. name .. " (" .. reason .. ")")
 end)
+
+-- =========================
+-- UTILS
+-- =========================
 
 function Auth.getId(source, idType)
     local identifiers = Auth.tempIdentifiers[source]
     if not identifiers then return nil end
-    
+
     if idType then
         return identifiers[idType]
     end
-    
+
     return identifiers
 end
+
+-- =========================
+-- WEBHOOKS
+-- =========================
 
 function Auth.sendRejectionWebhook(name, license, discord, ip, reason)
     local embed = {
@@ -81,7 +130,7 @@ function Auth.sendRejectionWebhook(name, license, discord, ip, reason)
         color = 16711680,
         timestamp = os.date("!%Y-%m-%dT%H:%M:%SZ"),
     }
-    
+
     ServerUtils.sendDiscordWebhook(Config.webhooks.connectionRejected, embed)
 end
 
@@ -97,6 +146,6 @@ function Auth.sendAcceptanceWebhook(name, license, discord, ip)
         color = 3066993,
         timestamp = os.date("!%Y-%m-%dT%H:%M:%SZ"),
     }
-    
+
     ServerUtils.sendDiscordWebhook(Config.webhooks.connectionAccepted, embed)
 end

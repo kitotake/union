@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: transparent; font-family: 'Segoe UI', sans-serif; overflow: hidden; }
+
+  #container {
+    position: fixed;
+    top: 24px;
+    right: 24px;
+    width: 320px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    pointer-events: none;
+  }
+
+  .notif {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    background: rgba(15, 15, 20, 0.92);
+    border-left: 4px solid #fff;
+    border-radius: 6px;
+    padding: 12px 14px;
+    animation: slideIn 0.3s ease forwards;
+    backdrop-filter: blur(6px);
+  }
+
+  .notif.hide {
+    animation: slideOut 0.35s ease forwards;
+  }
+
+  .notif-icon {
+    font-size: 18px;
+    min-width: 22px;
+    text-align: center;
+    margin-top: 1px;
+  }
+
+  .notif-body {}
+
+  .notif-type {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    margin-bottom: 3px;
+    opacity: 0.75;
+  }
+
+  .notif-message {
+    font-size: 13px;
+    color: #f0f0f0;
+    line-height: 1.45;
+  }
+
+  .notif-bar {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    height: 2px;
+    width: 100%;
+    border-radius: 0 0 6px 6px;
+    transform-origin: left;
+    animation: shrink linear forwards;
+  }
+
+  @keyframes slideIn {
+    from { opacity: 0; transform: translateX(40px); }
+    to   { opacity: 1; transform: translateX(0); }
+  }
+
+  @keyframes slideOut {
+    from { opacity: 1; transform: translateX(0); }
+    to   { opacity: 0; transform: translateX(40px); }
+  }
+
+  @keyframes shrink {
+    from { transform: scaleX(1); }
+    to   { transform: scaleX(0); }
+  }
+</style>
+</head>
+<body>
+<div id="container"></div>
+
+<script>
+  const container = document.getElementById('container');
+
+  window.addEventListener('message', function(e) {
+    if (e.data.action !== 'notify') return;
+
+    const { message, type, duration, color, icon } = e.data;
+    const colorStr = `rgb(${color.r}, ${color.g}, ${color.b})`;
+
+    const el = document.createElement('div');
+    el.className = 'notif';
+    el.style.borderLeftColor = colorStr;
+    el.style.position = 'relative';
+    el.innerHTML = `
+      <div class="notif-icon" style="color:${colorStr}">${icon}</div>
+      <div class="notif-body">
+        <div class="notif-type" style="color:${colorStr}">${type}</div>
+        <div class="notif-message">${message}</div>
+      </div>
+      <div class="notif-bar" style="background:${colorStr}; animation-duration:${duration}ms"></div>
+    `;
+
+    container.appendChild(el);
+
+    setTimeout(() => {
+      el.classList.add('hide');
+      setTimeout(() => el.remove(), 400);
+    }, duration);
+  });
+</script>
+</body>
+</html>

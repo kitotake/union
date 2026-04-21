@@ -73,4 +73,54 @@ RegisterNetEvent("union:vehicle:list", function()
     end)
 end)
 
+RegisterNetEvent("union:vehicle:spawn", function(plate)
+    local source = source
+    local player = PlayerManager.get(source)
+    if not player or not player.currentCharacter then return end
+
+    Database.fetchOne(
+        "SELECT * FROM owned_vehicles WHERE plate = ? AND unique_id = ?",
+        { plate, player.currentCharacter.unique_id },
+        function(vehicle)
+            if not vehicle then
+                TriggerClientEvent("union:vehicle:spawnResult", source, false, plate)
+                return
+            end
+
+            Database.execute(
+                "UPDATE owned_vehicles SET stored = 0 WHERE plate = ?",
+                { plate },
+                function()
+                    TriggerClientEvent("union:vehicle:spawnResult", source, true, plate)
+                end
+            )
+        end
+    )
+end)
+
+RegisterNetEvent("union:vehicle:store", function(plate)
+    local source = source
+    local player = PlayerManager.get(source)
+    if not player or not player.currentCharacter then return end
+
+    Database.fetchOne(
+        "SELECT * FROM owned_vehicles WHERE plate = ? AND unique_id = ?",
+        { plate, player.currentCharacter.unique_id },
+        function(vehicle)
+            if not vehicle then
+                TriggerClientEvent("union:vehicle:storeResult", source, false, plate)
+                return
+            end
+
+            Database.execute(
+                "UPDATE owned_vehicles SET stored = 1 WHERE plate = ?",
+                { plate },
+                function()
+                    TriggerClientEvent("union:vehicle:storeResult", source, true, plate)
+                end
+            )
+        end
+    )
+end)
+
 return Vehicle

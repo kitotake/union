@@ -50,15 +50,53 @@ function Job.getJobGrades(jobName, callback)
     )
 end
 
+-- ✅ Event déclenché quand un admin change le job d'un joueur en ligne
 RegisterNetEvent("union:job:set", function(jobName, grade)
     local source = source
     local player = PlayerManager.get(source)
-    
+
     if player and player:hasPermission("job.set") then
-        Job.setPlayerJob(player, jobName, grade)
+        Job.setPlayerJob(player, jobName, grade, function(success)
+            if success then
+                -- Notifier le client que son job a changé
+                TriggerClientEvent("union:job:updated", source, jobName, grade)
+            end
+        end)
     else
-        player:notify("Permission denied", "error")
+        if player then
+            player:notify("Permission refusée.", "error")
+        end
     end
+end)
+
+-- Demande de liste des jobs
+RegisterNetEvent("union:job:list:request", function()
+    local source = source
+    Job.getJobs(function(jobs)
+        TriggerClientEvent("union:job:list:received", source, jobs)
+    end)
+end)
+
+
+-- Demande de liste des employés d'un job
+RegisterNetEvent("union:job:employees:request", function(jobName)
+    local source = source
+    local player = PlayerManager.get(source)
+
+    if not player or not player:hasPermission("admin.kick") then
+        ServerUtils.notifyPlayer(source, "Permission refusée.", "error")
+        return
+    end
+
+    if not jobName then return end
+
+    Database.fetch(
+        "SELECT firstname, lastname, job_grade, unique_id FROM characters WHERE job = ?",
+        { jobName },
+        function(employees)
+            TriggerClientEvent("union:job:employees:received", source, jobName, employees or {})
+        end
+    )
 end)
 
 return Job

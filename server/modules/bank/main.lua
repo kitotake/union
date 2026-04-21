@@ -104,4 +104,72 @@ RegisterNetEvent("union:bank:getBalance", function()
     end
 end)
 
+RegisterNetEvent("union:bank:deposit", function(amount)
+    local source = source
+    local player = PlayerManager.get(source)
+    if not player or not player.currentCharacter then return end
+
+    Bank.deposit(player.currentCharacter.unique_id, amount, "Dépôt manuel", function(success)
+        if success then
+            Bank.getBalance(player.currentCharacter.unique_id, function(balance)
+                TriggerClientEvent("union:bank:depositResult", source, true, amount, balance)
+            end)
+        else
+            TriggerClientEvent("union:bank:depositResult", source, false, amount, 0)
+        end
+    end)
+end)
+
+RegisterNetEvent("union:bank:withdraw", function(amount)
+    local source = source
+    local player = PlayerManager.get(source)
+    if not player or not player.currentCharacter then return end
+
+    Bank.withdraw(player.currentCharacter.unique_id, amount, "Retrait manuel", function(success)
+        if success then
+            Bank.getBalance(player.currentCharacter.unique_id, function(balance)
+                TriggerClientEvent("union:bank:withdrawResult", source, true, amount, balance)
+            end)
+        else
+            TriggerClientEvent("union:bank:withdrawResult", source, false, amount, 0)
+        end
+    end)
+end)
+
+RegisterNetEvent("union:bank:transfer", function(targetId, amount)
+    local source = source
+    local player = PlayerManager.get(source)
+    local target = PlayerManager.get(targetId)
+
+    if not player or not player.currentCharacter then return end
+    if not target or not target.currentCharacter then
+        TriggerClientEvent("union:bank:transferResult", source, false, amount)
+        return
+    end
+
+    Bank.transfer(
+        player.currentCharacter.unique_id,
+        target.currentCharacter.unique_id,
+        amount,
+        "Transfert vers " .. target.name,
+        function(success)
+            TriggerClientEvent("union:bank:transferResult", source, success, amount)
+            if success then
+                TriggerClientEvent("union:notify", targetId,
+                    string.format("Vous avez reçu $%s de %s", amount, player.name), "success", 5000)
+            end
+        end
+    )
+end)
+
+RegisterNetEvent("union:bank:transactions", function()
+    local source = source
+    local player = PlayerManager.get(source)
+    if not player or not player.currentCharacter then return end
+
+    BankDB.getTransactions(player.currentCharacter.unique_id, 10, function(transactions)
+        TriggerClientEvent("union:bank:transactionsReceived", source, transactions or {})
+    end)
+end)
+
 return Bank

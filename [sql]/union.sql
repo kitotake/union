@@ -280,6 +280,20 @@ CREATE TABLE IF NOT EXISTS `action_logs` (
 -- DEFAULT DATA
 -- ============================================
 
+-- ============================================
+-- WHITELIST
+-- ============================================
+CREATE TABLE IF NOT EXISTS `whitelist` (
+    `id`        INT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `license`   VARCHAR(60)  NOT NULL,
+    `added_by`  VARCHAR(50)  DEFAULT 'console',
+    `active`    TINYINT(1)   DEFAULT 1,
+    `created_at` TIMESTAMP   DEFAULT CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uniq_license` (`license`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 -- Insert default jobs
 INSERT IGNORE INTO `jobs` (`name`, `label`, `whitelisted`) VALUES
 ('unemployed', 'Chômeur', 0),

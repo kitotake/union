@@ -104,16 +104,41 @@ end)
 AddEventHandler("playerDropped", function(reason)
     local source = source
     local player = PlayerManager.get(source)
-    
+
     if player then
         Auth.Webhooks.playerLeft(source, reason)
         PlayerManager.logger:info("Player " .. player.name .. " disconnected: " .. reason)
-        
-        -- Save character if selected
+
+        -- ✅ Sauvegarde du personnage à la déconnexion
         if player.currentCharacter then
-            -- Character save will be handled by character module
+            local ped = GetPlayerPed(source)
+
+            if DoesEntityExist(ped) then
+                local coords  = GetEntityCoords(ped)
+                local heading = GetEntityHeading(ped)
+                local health  = GetEntityHealth(ped)
+                local armor   = GetPedArmour(ped)
+
+                Database.execute([[
+                    UPDATE characters SET
+                    position_x = ?, position_y = ?, position_z = ?,
+                    heading = ?, health = ?, armor = ?,
+                    last_played = NOW()
+                    WHERE unique_id = ?
+                ]], {
+                    coords.x, coords.y, coords.z,
+                    heading, health, armor,
+                    player.currentCharacter.unique_id
+                }, function(result)
+                    if result then
+                        PlayerManager.logger:info("Character saved on disconnect for " .. player.name)
+                    else
+                        PlayerManager.logger:error("Failed to save character on disconnect for " .. player.name)
+                    end
+                end)
+            end
         end
-        
+
         PlayerManager.remove(source)
     end
 end)
