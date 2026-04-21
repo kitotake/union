@@ -21,3 +21,4 @@ prisma/migrations/
 
 shared/config/webhooks.lua
 shared/config/webhooks.lua
+shared/config/webhooks.lua
