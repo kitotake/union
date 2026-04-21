@@ -29,8 +29,6 @@ client_scripts {
     'client/modules/character/create.lua',
     'client/modules/character/select.lua',
 
-    'client/modules/ui/notification.lua',
-
     'client/modules/commands/character.lua',
     'client/modules/commands/admin.lua',
     'client/modules/commands/debug.lua',
