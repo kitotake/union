@@ -20,6 +20,22 @@ CREATE TABLE IF NOT EXISTS `users` (
     INDEX `idx_group` (`group`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- ============================================
+-- kt_inventory
+-- ============================================
+
+CREATE TABLE IF NOT EXISTS `kt_inventory` (
+    `id` INT AUTO_INCREMENT PRIMARY KEY,
+    `unique_id` VARCHAR(32) NOT NULL, -- personnage unique (IMPORTANT)
+    `name` VARCHAR(100) NOT NULL DEFAULT 'player', -- player / trunk / stash / glovebox
+    `data` LONGTEXT DEFAULT NULL,
+    `max_weight` INT DEFAULT 10000,
+    `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX `idx_unique_id` (`unique_id`),
+    UNIQUE KEY `uniq_inventory` (`unique_id`, `name`)
+);
+
 
 -- ============================================
 -- CHARACTERS

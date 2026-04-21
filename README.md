@@ -10,7 +10,7 @@ Framework roleplay développé pour FiveM (GTA V), construit avec **oxmysql**, e
 - 👤 Gestion multi-personnages avec `unique_id` pour chaque slot
 - 💼 Support de jobs, grades et affiliations
 - 🧍 Apparence & tatouages persistants
-- 🎒 Inventaire `ox_inventory` automatique par personnage -- pas encore dispo
+- 🎒 Inventaire `kt_inventory` automatique par personnage -- pas encore dispo
 - 💾 Sauvegarde automatique (position, santé, etc.) -- pas encore dispo
 - 📦 Structure modulaire : `server/`, `client/`, `shared/`
 
@@ -25,7 +25,7 @@ Framework roleplay développé pour FiveM (GTA V), construit avec **oxmysql**, e
 ## 🧩 Dépendances
 
 - [ox_core](https://overextended.dev/)
-- [ox_inventory](https://overextended.dev/)
+- [kt_inventory](https://overextended.dev/)
 - [oxmysql](https://github.com/overextended/oxmysql)
 
 ---

@@ -7,6 +7,7 @@ version '0.0.20'
 description 'Framework RP complet pour FiveM modular'
 
 shared_scripts {
+    '@kt_lib/init.lua', -- ← EN PREMIER, expose lib, cache, require
     'shared/constants.lua',
     'shared/utils.lua',
 }
@@ -19,6 +20,7 @@ client_scripts {
     'client/modules/components/logger.lua',
     'client/modules/components/position.lua',
     'client/modules/components/permissions.lua',
+    'client/modules/components/notifications.lua',
 
     'client/main.lua',
 
@@ -92,6 +94,10 @@ server_scripts {
     'server/modules/commands/taginfo.lua', 
     'server/modules/commands/job.lua',
     
+}
+
+dependencies {
+    'kt_lib',
 }
 
 server_exports {
