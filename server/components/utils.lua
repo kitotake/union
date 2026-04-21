@@ -19,30 +19,26 @@ function ServerUtils.getIdentifier(source, idType)
     elseif idType == "fivem" then
         return GetPlayerIdentifierByType(source, "fivem")
     else
-        -- Return all identifiers
         return GetPlayerIdentifiers(source)[1]
     end
 end
 
--- server/components/utils.lua
-
-local function generateUniqueId()
-    local time = os.time()
-    local rand = math.random(100000, 999999)
-    return time .. "_" .. rand
+-- ✅ FIX : était une fonction locale, maintenant sur ServerUtils
+function ServerUtils.generateUniqueId(length)
+    length = length or 12
+    local chars = "abcdefghijklmnopqrstuvwxyz0123456789"
+    local id = "chr_"
+    for i = 1, length do
+        local rand = math.random(#chars)
+        id = id .. chars:sub(rand, rand)
+    end
+    return id
 end
 
-print("Utils component loaded")
-print("Generated Unique ID: " .. generateUniqueId())
-
-local function getPlayerName(source)
-    return GetPlayerName(source) or "Unknown"
-end
-
-print("exports defined: generateUniqueId, getPlayerName")
--- Export functions
-exports('generateUniqueId', generateUniqueId)
-exports('getPlayerName', getPlayerName)
+-- Export conservé pour kt_character
+exports('generateUniqueId', function(len)
+    return ServerUtils.generateUniqueId(len)
+end)
 
 function ServerUtils.validateEmail(email)
     if not email then return false end
@@ -69,23 +65,18 @@ function ServerUtils.notifyAll(message, type, duration)
 end
 
 function ServerUtils.sendDiscordWebhook(webhookUrl, embed)
-    if not webhookUrl or webhookUrl == "" then
-        return false
-    end
-    
+    if not webhookUrl or webhookUrl == "" then return false end
     local content = {
         username = embed.username or "Union Framework",
         embeds = {embed}
     }
-    
     PerformHttpRequest(webhookUrl, function(err)
-    if err ~= 200 and err ~= 204 then
-        Logger:error("Discord webhook failed: " .. tostring(err))
-    end
-end, 'POST', json.encode(content), {
-    ['Content-Type'] = 'application/json'
-})
-    
+        if err ~= 200 and err ~= 204 then
+            Logger:error("Discord webhook failed: " .. tostring(err))
+        end
+    end, 'POST', json.encode(content), {
+        ['Content-Type'] = 'application/json'
+    })
     return true
 end
 

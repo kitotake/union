@@ -1,9 +1,4 @@
--- server/modules/character/main.lua  (Union Framework — patché pour kt_character)
--- Seule la fonction Character.select est modifiée pour :
--- 1. Convertir gender enum 'm'/'f' → model string GTA V
--- 2. Garantir une position valide (pas 0,0,0)
--- 3. Inclure unique_id dans charData pour que kt_character puisse recharger le skin
-
+-- server/modules/character/main.lua
 Character = {}
 Character.logger = Logger:child("CHARACTER")
 
@@ -12,19 +7,18 @@ function Character.create(player, data, callback)
         if callback then callback(false, nil, nil) end
         return
     end
-
     if not data.firstname or not data.lastname or not data.dateofbirth or not data.gender then
         Character.logger:warn("Invalid character data for " .. player.name)
         if callback then callback(false, nil, nil) end
         return
     end
 
-    local firstname = Utils.safeString(data.firstname, 50)
-    local lastname  = Utils.safeString(data.lastname, 50)
+    local firstname   = Utils.safeString(data.firstname, 50)
+    local lastname    = Utils.safeString(data.lastname, 50)
     local dateofbirth = Utils.safeString(data.dateofbirth)
-    local gender    = data.gender:lower() == "f" and "f" or "m"
-    local model     = gender == "f" and Config.spawn.femaleModel or Config.spawn.defaultModel
-    local uniqueId  = ServerUtils.generateUniqueId(12)
+    local gender      = data.gender:lower() == "f" and "f" or "m"
+    local model       = gender == "f" and Config.spawn.femaleModel or Config.spawn.defaultModel
+    local uniqueId    = ServerUtils.generateUniqueId(12)
 
     Database.insert([[
         INSERT INTO characters
@@ -42,7 +36,7 @@ function Character.create(player, data, callback)
             Database.insert(
                 "INSERT INTO character_appearances (unique_id) VALUES (?)",
                 {uniqueId},
-                function(appearanceId)
+                function()
                     Character.logger:info("Character created for " .. player.name .. ": " .. firstname .. " " .. lastname)
                     player:loadCharacters(function()
                         if callback then callback(true, characterId, uniqueId) end
@@ -56,7 +50,6 @@ function Character.create(player, data, callback)
     end)
 end
 
--- ─── ✅ PATCHÉ : conversion gender + position garantie ──────────────────
 function Character.select(player, characterId, callback)
     if not player or not characterId then
         if callback then callback(false, nil) end
@@ -80,7 +73,6 @@ function Character.select(player, characterId, callback)
     player.currentCharacter = selected
     Character.logger:info("Character selected for " .. player.name .. ": " .. selected.firstname .. " " .. selected.lastname)
 
-    -- ✅ Convertir gender enum → model string GTA V
     local modelStr
     if selected.model and selected.model ~= "" then
         modelStr = selected.model
@@ -90,18 +82,17 @@ function Character.select(player, characterId, callback)
         modelStr = "mp_m_freemode_01"
     end
 
-    -- ✅ Position garantie non nulle
     local posX = (selected.position_x and selected.position_x ~= 0) and selected.position_x or Config.spawn.defaultPosition.x
     local posY = (selected.position_y and selected.position_y ~= 0) and selected.position_y or Config.spawn.defaultPosition.y
     local posZ = (selected.position_z and selected.position_z ~= 0) and selected.position_z or Config.spawn.defaultPosition.z
 
     local charData = {
         id          = selected.id,
-        unique_id   = selected.unique_id,   -- ← REQUIS par kt_character pour reloadSkin
+        unique_id   = selected.unique_id,
         firstname   = selected.firstname,
         lastname    = selected.lastname,
-        gender      = selected.gender,      -- enum 'm'/'f'
-        model       = modelStr,             -- ← model string GTA V pour SetPlayerModel
+        gender      = selected.gender,
+        model       = modelStr,
         dateofbirth = selected.dateofbirth,
         position    = vector3(posX, posY, posZ),
         heading     = selected.heading or Config.spawn.defaultHeading,
@@ -109,13 +100,28 @@ function Character.select(player, characterId, callback)
         armor       = selected.armor   or 0,
     }
 
-    -- Spawn via Union (SetPlayerModel + NetworkResurrect)
-    TriggerClientEvent("union:spawn:apply", player.source, charData)
+    -- ✅ FIX : charger le skin depuis character_appearances avant le spawn
+    Database.fetchOne(
+        "SELECT skin_data FROM character_appearances WHERE unique_id = ?",
+        { selected.unique_id },
+        function(appearance)
+            if appearance and appearance.skin_data then
+                local skin = json.decode(appearance.skin_data)
+                if skin then
+                    charData.hair         = skin.hair
+                    charData.headBlend    = skin.headBlend
+                    charData.faceFeatures = skin.faceFeatures
+                    charData.headOverlays = skin.headOverlays
+                    charData.components   = skin.components
+                    charData.props        = skin.props
+                    charData.tattoos      = skin.tattoos
+                end
+            end
 
-    -- Ensuite kt_character appliquera le skin via l'event "union:spawn:apply"
-    -- (écouté dans kt_character/client/main.lua)
-
-    if callback then callback(true, selected) end
+            TriggerClientEvent("union:spawn:apply", player.source, charData)
+            if callback then callback(true, selected) end
+        end
+    )
 end
 
 function Character.delete(player, characterId, callback)
@@ -123,7 +129,6 @@ function Character.delete(player, characterId, callback)
         if callback then callback(false) end
         return
     end
-
     Database.execute(
         "DELETE FROM characters WHERE id = ? AND identifier = ?",
         {characterId, player.license},
@@ -140,10 +145,9 @@ function Character.delete(player, characterId, callback)
     )
 end
 
--- Network events
 RegisterNetEvent("union:character:create", function(data)
     local source = source
-    local player  = PlayerManager.get(source)
+    local player = PlayerManager.get(source)
     if not player then
         TriggerClientEvent("union:character:created", source, false)
         return
@@ -155,14 +159,14 @@ end)
 
 RegisterNetEvent("union:character:list", function()
     local source = source
-    local player  = PlayerManager.get(source)
+    local player = PlayerManager.get(source)
     if not player then return end
     TriggerClientEvent("union:character:listReceived", source, player.characters)
 end)
 
 RegisterNetEvent("union:character:select", function(characterId)
     local source = source
-    local player  = PlayerManager.get(source)
+    local player = PlayerManager.get(source)
     if not player then return end
     Character.select(player, characterId, function(success, character)
         TriggerClientEvent("union:character:selected", source, success, character)
@@ -171,7 +175,7 @@ end)
 
 RegisterNetEvent("union:character:delete", function(characterId)
     local source = source
-    local player  = PlayerManager.get(source)
+    local player = PlayerManager.get(source)
     if not player or not player:hasPermission("character.delete") then
         TriggerClientEvent("union:character:deleted", source, false)
         return
