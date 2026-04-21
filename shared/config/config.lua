@@ -33,12 +33,13 @@ Config = {
         defaultGroup = "user",
         autoAssign = true,
     },
+    -- Whitelist
+    whitelist = {
+        enabled = false, -- passer à true pour activer
+    },
 }
 
--- Whitelist
-whitelist = {
-    enabled = false, -- passer à true pour activer
-},
+
 
 if IsDuplicityVersion() then
     exports("GetConfig", function() return Config end)

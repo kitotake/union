@@ -107,22 +107,16 @@ end, true)
 
 -- Vérification automatique à la connexion
 -- À appeler dans auth/connect.lua après la vérification des identifiants
-function Whitelist.check(src, license, name, deferrals)
+function Whitelist.check(src, license, name, deferrals, callback)
     if not Config.whitelist or not Config.whitelist.enabled then
-        deferrals.done()
+        if callback then callback(true) end
         return
     end
 
     deferrals.update("Vérification whitelist...")
 
     Whitelist.isAllowed(license, function(allowed)
-        if allowed then
-            Whitelist.logger:info(name .. " est whitelisté.")
-            deferrals.done()
-        else
-            Whitelist.logger:warn(name .. " n'est pas whitelisté. Connexion refusée.")
-            deferrals.done("Vous n'êtes pas whitelisté sur ce serveur.")
-        end
+        if callback then callback(allowed) end
     end)
 end
 
