@@ -1,4 +1,7 @@
 -- server/components/utils.lua
+-- FIX: ServerUtils.notifyPlayer(0, ...) crash quand la commande est lancée depuis la console
+--      car TriggerClientEvent avec source=0 ne cible personne mais le native plante.
+
 ServerUtils = {}
 
 function ServerUtils.getPlayerIP(source)
@@ -23,7 +26,6 @@ function ServerUtils.getIdentifier(source, idType)
     end
 end
 
--- ✅ FIX : était une fonction locale, maintenant sur ServerUtils
 function ServerUtils.generateUniqueId(length)
     length = length or 12
     local chars = "abcdefghijklmnopqrstuvwxyz0123456789"
@@ -35,7 +37,6 @@ function ServerUtils.generateUniqueId(length)
     return id
 end
 
--- Export conservé pour kt_character
 exports('generateUniqueId', function(len)
     return ServerUtils.generateUniqueId(len)
 end)
@@ -52,9 +53,17 @@ function ServerUtils.validateDate(date)
     return true
 end
 
+-- FIX: si source est 0 (console) ou nil → print dans la console au lieu de TriggerClientEvent
 function ServerUtils.notifyPlayer(source, message, type, duration)
-    type = type or "info"
+    type     = type     or "info"
     duration = duration or 3000
+
+    if not source or source == 0 then
+        -- Console : afficher directement
+        print(("[NOTIFY→console][%s] %s"):format(type:upper(), tostring(message)))
+        return
+    end
+
     TriggerClientEvent("union:notify", source, message, type, duration)
 end
 
@@ -68,7 +77,7 @@ function ServerUtils.sendDiscordWebhook(webhookUrl, embed)
     if not webhookUrl or webhookUrl == "" then return false end
     local content = {
         username = embed.username or "Union Framework",
-        embeds = {embed}
+        embeds = { embed }
     }
     PerformHttpRequest(webhookUrl, function(err)
         if err ~= 200 and err ~= 204 then

@@ -1,19 +1,38 @@
 -- server/modules/commands/debug.lua
+-- FIX: toutes les commandes dbg: supportent maintenant source=0 (console)
+--      → la vérification de permission était : PlayerManager.get(0) → nil → refus
+--      → maintenant la console bypass la vérification
 
 if not Config.debug then return end
 
+local function isConsole(src)
+    return src == 0
+end
 
--- /dbg:player <id> — dump complet d'un joueur en console
-RegisterCommand("dbg:player", function(source, args)
-    local src   = source
+local function requirePerm(src, perm)
+    if isConsole(src) then return true end
     local admin = PlayerManager.get(src)
-    if not admin or not admin:hasPermission("admin.kick") then return end
+    return admin and admin:hasPermission(perm)
+end
 
-    local targetId = tonumber(args[1]) or src
-    local target   = PlayerManager.get(targetId)
+-- /dbg:player <id>
+RegisterCommand("dbg:player", function(source, args)
+    local src = source
+    if not requirePerm(src, "admin.kick") then
+        ServerUtils.notifyPlayer(src, "Permission refusée.", "error")
+        return
+    end
 
+    local targetId = tonumber(args[1]) or (not isConsole(src) and src or nil)
+    if not targetId then
+        print("^1[DEBUG] Usage: dbg:player <id>^7")
+        return
+    end
+
+    local target = PlayerManager.get(targetId)
     if not target then
         print("^1[DEBUG] Joueur " .. targetId .. " introuvable^7")
+        ServerUtils.notifyPlayer(src, "Joueur introuvable.", "error")
         return
     end
 
@@ -46,11 +65,13 @@ RegisterCommand("dbg:player", function(source, args)
 end, false)
 
 
--- /dbg:server — stats générales du serveur
+-- /dbg:server
 RegisterCommand("dbg:server", function(source)
-    local src   = source
-    local admin = PlayerManager.get(src)
-    if not admin or not admin:hasPermission("admin.kick") then return end
+    local src = source
+    if not requirePerm(src, "admin.kick") then
+        ServerUtils.notifyPlayer(src, "Permission refusée.", "error")
+        return
+    end
 
     local stats = PlayerManager.getStats()
 
@@ -62,21 +83,24 @@ RegisterCommand("dbg:server", function(source)
     print("  Ressource     : " .. GetCurrentResourceName())
 
     ServerUtils.notifyPlayer(src,
-        string.format("Serveur: %d joueurs (%d admins, %d modos). Voir console.",
+        string.format("Serveur: %d joueurs (%d admins, %d modos).",
             stats.total, stats.admins, stats.moderators),
         "info"
     )
 end, false)
 
 
--- /dbg:db <unique_id> — vérifie qu'un personnage existe en DB
+-- /dbg:db <unique_id>
 RegisterCommand("dbg:db", function(source, args)
-    local src   = source
-    local admin = PlayerManager.get(src)
-    if not admin or not admin:hasPermission("admin.kick") then return end
+    local src = source
+    if not requirePerm(src, "admin.kick") then
+        ServerUtils.notifyPlayer(src, "Permission refusée.", "error")
+        return
+    end
 
     local uid = args[1]
     if not uid then
+        print("^1[DEBUG] Usage: dbg:db <unique_id>^7")
         ServerUtils.notifyPlayer(src, "Usage: /dbg:db <unique_id>", "error")
         return
     end
@@ -107,9 +131,20 @@ RegisterCommand("dbg:db", function(source, args)
 end, false)
 
 
--- /dbg:pos — affiche la position sauvegardée du personnage actif
+-- /dbg:pos
 RegisterCommand("dbg:pos", function(source)
-    local src    = source
+    local src = source
+    if not requirePerm(src, "admin.kick") then
+        ServerUtils.notifyPlayer(src, "Permission refusée.", "error")
+        return
+    end
+
+    -- Console n'a pas de personnage, lui dire de préciser un joueur
+    if isConsole(src) then
+        print("^3[DEBUG] Console: utilisez dbg:player <id> pour voir la position d'un joueur^7")
+        return
+    end
+
     local player = PlayerManager.get(src)
     if not player or not player.currentCharacter then
         ServerUtils.notifyPlayer(src, "Aucun personnage actif.", "warning")

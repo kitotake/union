@@ -1,4 +1,6 @@
 -- server/modules/player/persistence.lua
+-- FIX: utilise la colonne `position` JSON au lieu de position_x/y/z/heading séparés
+
 Persistence = {}
 Persistence.logger = Logger:child("PERSISTENCE")
 Persistence.saveInterval = Config.spawn.saveInterval or 30000
@@ -7,26 +9,31 @@ function Persistence.savePlayer(player)
     if not player or not player.currentCharacter then
         return false
     end
-    
+
     local ped = GetPlayerPed(player.source)
     if not DoesEntityExist(ped) then
         return false
     end
-    
-    local coords = GetEntityCoords(ped)
+
+    local coords  = GetEntityCoords(ped)
     local heading = GetEntityHeading(ped)
-    local health = GetEntityHealth(ped)
-    local armor = GetPedArmour(ped)
-    
+    local health  = GetEntityHealth(ped)
+    local armor   = GetPedArmour(ped)
+
+    local posJson = json.encode({
+        x = coords.x,
+        y = coords.y,
+        z = coords.z,
+        heading = heading
+    })
+
     Database.execute([[
         UPDATE characters SET
-        position_x = ?, position_y = ?, position_z = ?,
-        heading = ?, health = ?, armor = ?,
+        position = ?, health = ?, armor = ?,
         last_played = NOW()
         WHERE unique_id = ?
     ]], {
-        coords.x, coords.y, coords.z,
-        heading, health, armor,
+        posJson, health, armor,
         player.currentCharacter.unique_id
     }, function(result)
         if result then
@@ -35,7 +42,7 @@ function Persistence.savePlayer(player)
             Persistence.logger:error("Failed to save character for " .. player.name)
         end
     end)
-    
+
     return true
 end
 

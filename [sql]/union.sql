@@ -13,7 +13,6 @@ CREATE TABLE IF NOT EXISTS `users` (
     `group` VARCHAR(50) DEFAULT 'user',
     `banned` TINYINT(1) DEFAULT 0,
     `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    `last_login` TIMESTAMP NULL DEFAULT NULL,
 
     PRIMARY KEY (`id`),
     UNIQUE KEY `uniq_identifier` (`identifier`),
@@ -42,41 +41,52 @@ CREATE TABLE IF NOT EXISTS `kt_inventory` (
 -- ============================================
 CREATE TABLE IF NOT EXISTS `characters` (
     `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
+
+    -- Identité
     `identifier` VARCHAR(60) NOT NULL,
-    `unique_id` VARCHAR(32) NOT NULL,
+    `unique_id` VARCHAR(36) NOT NULL,
+
     `firstname` VARCHAR(50) NOT NULL,
     `lastname` VARCHAR(50) NOT NULL,
     `dateofbirth` DATE NOT NULL,
     `gender` ENUM('m','f') NOT NULL,
 
-    `model` VARCHAR(50),
-    `position_x` DOUBLE,
-    `position_y` DOUBLE,
-    `position_z` DOUBLE,
-    `heading` DOUBLE,
+    -- Apparence / modèle
+    `model` VARCHAR(50) DEFAULT NULL,
 
+    -- Position (JSON propre)
+    `position` JSON DEFAULT NULL,
+
+    -- Stats
     `health` INT DEFAULT 200,
     `armor` INT DEFAULT 0,
     `is_dead` TINYINT(1) DEFAULT 0,
 
+    -- Job
     `job` VARCHAR(50) DEFAULT 'unemployed',
     `job_grade` INT DEFAULT 0,
 
+    -- Timestamps
     `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     `last_played` TIMESTAMP NULL DEFAULT NULL,
     `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
 
     PRIMARY KEY (`id`),
+
+    -- Contraintes
     UNIQUE KEY `uniq_unique_id` (`unique_id`),
+
+    -- Index utiles
     INDEX `idx_identifier` (`identifier`),
     INDEX `idx_job` (`job`),
 
+    -- Relation user
     CONSTRAINT `fk_char_user`
         FOREIGN KEY (`identifier`)
         REFERENCES `users` (`identifier`)
         ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- ============================================
 -- CHARACTER APPEARANCES

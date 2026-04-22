@@ -1,4 +1,7 @@
 -- server/modules/player/manager.lua
+-- FIX: playerDropped sauvegarde en colonne `position` JSON
+-- FIX: suppression UPDATE last_login
+
 PlayerManager = {}
 PlayerManager.logger = Logger:child("PLAYER:MANAGER")
 PlayerManager.players = {}
@@ -8,10 +11,10 @@ function PlayerManager.create(source)
         PlayerManager.logger:warn("Player " .. source .. " already exists")
         return PlayerManager.players[source]
     end
-    
+
     local player = Player.new(source)
     PlayerManager.players[source] = player
-    
+
     return player
 end
 
@@ -69,7 +72,7 @@ function PlayerManager.getStats()
         moderators = 0,
         users = 0,
     }
-    
+
     for _, player in pairs(PlayerManager.players) do
         if player:isAdmin() then
             stats.admins = stats.admins + 1
@@ -79,14 +82,14 @@ function PlayerManager.getStats()
             stats.users = stats.users + 1
         end
     end
-    
+
     return stats
 end
 
 -- Initialize player on join
 RegisterNetEvent("union:player:joined", function()
     local source = source
-    
+
     local player = PlayerManager.create(source)
     player:loadFromDatabase(function(success)
         if success then
@@ -109,7 +112,7 @@ AddEventHandler("playerDropped", function(reason)
         Auth.Webhooks.playerLeft(source, reason)
         PlayerManager.logger:info("Player " .. player.name .. " disconnected: " .. reason)
 
-        -- ✅ Sauvegarde du personnage à la déconnexion
+        -- Sauvegarde position + health + armor à la déconnexion
         if player.currentCharacter then
             local ped = GetPlayerPed(source)
 
@@ -119,15 +122,20 @@ AddEventHandler("playerDropped", function(reason)
                 local health  = GetEntityHealth(ped)
                 local armor   = GetPedArmour(ped)
 
+                local posJson = json.encode({
+                    x       = coords.x,
+                    y       = coords.y,
+                    z       = coords.z,
+                    heading = heading
+                })
+
                 Database.execute([[
                     UPDATE characters SET
-                    position_x = ?, position_y = ?, position_z = ?,
-                    heading = ?, health = ?, armor = ?,
+                    position = ?, health = ?, armor = ?,
                     last_played = NOW()
                     WHERE unique_id = ?
                 ]], {
-                    coords.x, coords.y, coords.z,
-                    heading, health, armor,
+                    posJson, health, armor,
                     player.currentCharacter.unique_id
                 }, function(result)
                     if result then

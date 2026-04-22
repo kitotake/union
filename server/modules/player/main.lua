@@ -1,4 +1,7 @@
 -- server/modules/player/main.lua
+-- FIX: suppression de "UPDATE users SET last_login = NOW()" → ping DB inutile
+--      (last_login peut être mis à jour à playerDropped si vraiment nécessaire)
+
 Player = {}
 Player.metatable = {}
 Player.metatable.__index = Player
@@ -6,26 +9,26 @@ Player.logger = Logger:child("PLAYER")
 
 function Player.new(source)
     local self = setmetatable({}, Player.metatable)
-    
+
     self.source = source
     self.identifiers = Auth.Identifier.get(source)
     self.license = self.identifiers.license
     self.discord = self.identifiers.discord
     self.name = self.identifiers.name
     self.ip = self.identifiers.ip
-    
+
     self.userId = nil
     self.characters = {}
     self.currentCharacter = nil
     self.permission = 0
     self.group = "user"
-    
+
     self.isLoading = true
     self.isSpawned = false
     self.lastActivity = os.time()
-    
+
     Player.logger:info("Player created: " .. self.name .. " (" .. self.license .. ")")
-    
+
     return self
 end
 
@@ -35,28 +38,24 @@ function Player:loadFromDatabase(callback)
         if callback then callback(false) end
         return
     end
-    
+
     Database.fetchOne(
         "SELECT * FROM users WHERE identifier = ?",
-        {self.license},
+        { self.license },
         function(result)
             if result then
                 self.userId = result.id
                 self.permission = result.permission_level or 0
                 self.group = result.group or "user"
-                
-                Database.execute(
-                    "UPDATE users SET last_login = NOW() WHERE id = ?",
-                    {self.userId},
-                    function() end
-                )
-                
+
+                -- FIX: supprimé UPDATE last_login (ping inutile à chaque connexion)
+
                 Player.logger:info("User loaded: " .. self.name)
                 self:loadCharacters(callback)
             else
                 Database.insert(
                     "INSERT INTO users (identifier, discord, name) VALUES (?, ?, ?)",
-                    {self.license, self.discord, self.name},
+                    { self.license, self.discord, self.name },
                     function(userId)
                         if userId then
                             self.userId = userId
@@ -76,7 +75,7 @@ end
 function Player:loadCharacters(callback)
     Database.fetch(
         "SELECT * FROM characters WHERE identifier = ?",
-        {self.license},
+        { self.license },
         function(characters)
             self.characters = characters or {}
             Player.logger:info(#self.characters .. " characters loaded for " .. self.name)
@@ -104,10 +103,10 @@ function Player:ban(reason, duration)
     reason = reason or "No reason provided"
     duration = duration or 0
     Player.logger:warn("Banning player " .. self.name .. ": " .. reason)
-    
+
     Database.execute(
         "UPDATE users SET banned = 1 WHERE id = ?",
-        {self.userId},
+        { self.userId },
         function()
             Auth.Webhooks.playerBanned(self.license, reason, duration)
             self:kick("You have been banned: " .. reason)
@@ -128,7 +127,6 @@ function Player:isModerator()
 end
 
 function Player:hasPermission(permission)
-    -- FIXME : était HasPermission (H majuscule) → n'existait pas
     return PermissionSystem.hasPermission(self.source, permission)
 end
 

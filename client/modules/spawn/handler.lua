@@ -22,6 +22,49 @@ function Spawn.Handler.applyOutfit(ped, outfitStyle)
     Spawn.Handler.setDefaultClothes(ped)
 end
 
+-- CreateThread(function()
+--     local playerId = PlayerId()
+
+--     -- Écran noir direct (évite les flashs)
+--     DoScreenFadeOut(0)
+
+--     -- Attendre que le joueur soit actif sur le réseau
+--     while not NetworkIsPlayerActive(playerId) do
+--         Wait(0)
+--     end
+
+--     local ped = PlayerPedId()
+
+--     -- Rendre invisible + freeze pendant le chargement
+--     SetEntityVisible(ped, false, false)
+--     FreezeEntityPosition(ped, true)
+--     SetPlayerInvincible(playerId, true)
+
+--     local coords = GetEntityCoords(ped)
+
+--     -- Charger les collisions à la position
+--     RequestCollisionAtCoord(coords.x, coords.y, coords.z)
+
+--     while not HasCollisionLoadedAroundEntity(ped) do
+--         Wait(0)
+--     end
+
+--     -- Stop loading screen
+--     ShutdownLoadingScreen()
+--     ShutdownLoadingScreenNui()
+
+--     -- Réactiver le joueur
+--     SetEntityVisible(ped, true, false)
+--     -- joueur UNFREEZE
+--     FreezeEntityPosition(ped, false)
+--     -- joueur redevient vulnérable
+--     SetPlayerInvincible(playerId, false)
+
+--     -- Fade in propre
+--     DoScreenFadeIn(1000)
+-- end)
+
+
 -- Auto-initialize spawn on player enter world
 CreateThread(function()
     -- Attendre que le joueur soit actif sur le réseau

@@ -78,13 +78,13 @@ server_scripts {
     'server/modules/inventory/main.lua',
 
     -- Vehicle Module
-    'server/modules/vehicle/main.lua',
-    'server/modules/vehicle/database.lua',
+    /*'server/modules/vehicle/main.lua',
+    'server/modules/vehicle/database.lua',*/
 
     -- Job Module
-   /* 'server/modules/job/main.lua',
-    'server/modules/job/database.lua',
-*/
+    'server/modules/job/main.lua',
+    /*'server/modules/job/database.lua',*/
+
     -- Bank Module
     'server/modules/bank/main.lua',
     'server/modules/bank/database.lua',

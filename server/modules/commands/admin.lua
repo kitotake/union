@@ -1,10 +1,22 @@
 -- server/modules/commands/admin.lua
+-- FIX: toutes les commandes testent maintenant si src == 0 (console)
+--      → bypass de la vérification de permission pour la console
+--      → ServerUtils.notifyPlayer(0) remplacé par print() via le fix dans utils.lua
+
+local function isConsole(src)
+    return src == 0
+end
+
+local function requirePerm(src, perm)
+    if isConsole(src) then return true end
+    local admin = PlayerManager.get(src)
+    return admin and admin:hasPermission(perm)
+end
 
 -- /kick <id> <raison>
 RegisterCommand("kick", function(source, args)
-    local src   = source
-    local admin = PlayerManager.get(src)
-    if not admin or not admin:hasPermission("admin.kick") then
+    local src = source
+    if not requirePerm(src, "admin.kick") then
         ServerUtils.notifyPlayer(src, "Permission refusée.", "error")
         return
     end
@@ -22,7 +34,7 @@ RegisterCommand("kick", function(source, args)
         return
     end
 
-    Logger:warn("[ADMIN] " .. admin.name .. " a kické " .. target.name .. " : " .. reason)
+    Logger:warn("[ADMIN] kick " .. target.name .. " : " .. reason)
     target:kick(reason)
     ServerUtils.notifyPlayer(src, target.name .. " a été kické.", "success")
 end, false)
@@ -30,9 +42,8 @@ end, false)
 
 -- /ban <id> <raison>
 RegisterCommand("ban", function(source, args)
-    local src   = source
-    local admin = PlayerManager.get(src)
-    if not admin or not admin:hasPermission("admin.ban") then
+    local src = source
+    if not requirePerm(src, "admin.ban") then
         ServerUtils.notifyPlayer(src, "Permission refusée.", "error")
         return
     end
@@ -50,17 +61,16 @@ RegisterCommand("ban", function(source, args)
         return
     end
 
-    Logger:warn("[ADMIN] " .. admin.name .. " a banni " .. target.name .. " : " .. reason)
+    Logger:warn("[ADMIN] ban " .. target.name .. " : " .. reason)
     target:ban(reason)
     ServerUtils.notifyPlayer(src, target.name .. " a été banni.", "success")
 end, false)
 
 
--- /heal <id?> — soigne soi-même ou un autre joueur
+-- /heal <id?>
 RegisterCommand("heal", function(source, args)
-    local src   = source
-    local admin = PlayerManager.get(src)
-    if not admin or not admin:hasPermission("admin.healrevive") then
+    local src = source
+    if not requirePerm(src, "admin.healrevive") then
         ServerUtils.notifyPlayer(src, "Permission refusée.", "error")
         return
     end
@@ -71,11 +81,10 @@ RegisterCommand("heal", function(source, args)
 end, false)
 
 
--- /revive <id?> — revive soi-même ou un autre joueur
+-- /revive <id?>
 RegisterCommand("revive", function(source, args)
-    local src   = source
-    local admin = PlayerManager.get(src)
-    if not admin or not admin:hasPermission("admin.healrevive") then
+    local src = source
+    if not requirePerm(src, "admin.healrevive") then
         ServerUtils.notifyPlayer(src, "Permission refusée.", "error")
         return
     end
@@ -87,10 +96,10 @@ end, false)
 
 
 -- /setgroup <id> <groupe>
+-- FIX: supporte source=0 (console) → notifyPlayer(0) ne crash plus
 RegisterCommand("setgroup", function(source, args)
-    local src   = source
-    local admin = PlayerManager.get(src)
-    if not admin or not admin:hasPermission("admin.all") then
+    local src = source
+    if not requirePerm(src, "admin.all") then
         ServerUtils.notifyPlayer(src, "Permission refusée.", "error")
         return
     end
@@ -105,7 +114,7 @@ RegisterCommand("setgroup", function(source, args)
 
     local target = PlayerManager.get(targetId)
     if not target then
-        ServerUtils.notifyPlayer(src, "Joueur introuvable.", "error")
+        ServerUtils.notifyPlayer(src, "Joueur introuvable (id: " .. targetId .. ").", "error")
         return
     end
 
@@ -115,11 +124,10 @@ RegisterCommand("setgroup", function(source, args)
 end, false)
 
 
--- /players — liste tous les joueurs en ligne
+-- /players
 RegisterCommand("players", function(source)
-    local src   = source
-    local admin = PlayerManager.get(src)
-    if not admin or not admin:hasPermission("admin.kick") then
+    local src = source
+    if not requirePerm(src, "admin.kick") then
         ServerUtils.notifyPlayer(src, "Permission refusée.", "error")
         return
     end

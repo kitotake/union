@@ -1,4 +1,8 @@
--- server/modules/spawn/main.lua  (Union Framework — patché pour kt_character)
+-- server/modules/spawn/main.lua  (Union Framework)
+-- FIX: Character.select charge le skin AVANT TriggerClientEvent union:spawn:apply
+--      (déjà fait dans character/main.lua, ici on s'assure que le flow est propre)
+-- FIX: last_login supprimé (ping inutile à chaque chargement joueur)
+
 Spawn = {}
 Spawn.logger = Logger:child("SPAWN")
 
@@ -9,16 +13,13 @@ function Spawn.requestInitial(player)
     end
 
     if #player.characters == 0 then
-        -- ✅ PATCH kt_character : ouvrir le creator NUI à la place
         Spawn.logger:info("No characters for " .. player.name .. " → opening kt_character creator")
         TriggerClientEvent("kt_character:openCreator", player.source)
     else
-        -- Si 1 seul personnage : le sélectionner automatiquement
         if #player.characters == 1 then
             Spawn.logger:info("1 character found, auto-selecting for " .. player.name)
             Character.select(player, player.characters[1].id, function() end)
         else
-            -- Plusieurs personnages : afficher le menu de sélection Union
             TriggerClientEvent("union:spawn:selectCharacter", player.source, player.characters)
         end
     end
@@ -86,8 +87,6 @@ RegisterNetEvent("union:spawn:confirm", function()
         TriggerEvent("union:player:spawned", source, player.currentCharacter)
     end
 end)
-
-
 
 RegisterNetEvent("union:spawn:error", function(errorType)
     local source = source

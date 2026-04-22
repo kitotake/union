@@ -1,62 +1,140 @@
--- server/modules/character/main.lua
-Character = {}
+-- ============================================================
+--  server/modules/character/main.lua
+--  Gestion des personnages : création, sélection, suppression
+-- ============================================================
+
+Character        = {}
 Character.logger = Logger:child("CHARACTER")
 
-function Character.create(player, data, callback)
-    if not player or not data then
-        if callback then callback(false, nil, nil) end
-        return
-    end
-    if not data.firstname or not data.lastname or not data.dateofbirth or not data.gender then
-        Character.logger:warn("Invalid character data for " .. player.name)
-        if callback then callback(false, nil, nil) end
-        return
+-- ────────────────────────────────────────────────────────────
+--  Helpers internes
+-- ────────────────────────────────────────────────────────────
+
+--- Décode un champ position JSON et retourne (vector3, heading).
+--- Si le JSON est absent ou invalide, retourne les valeurs par défaut.
+---@param raw string|nil   JSON brut stocké en base
+---@return vector3, number
+local function decodePosition(raw)
+    local defPos = Config.spawn.defaultPosition
+    local defHdg = Config.spawn.defaultHeading
+
+    if not raw then
+        return vector3(defPos.x, defPos.y, defPos.z), defHdg
     end
 
+    local ok, p = pcall(json.decode, raw)
+    if ok and p and p.x then
+        return vector3(p.x, p.y, p.z), (p.heading or defHdg)
+    end
+
+    return vector3(defPos.x, defPos.y, defPos.z), defHdg
+end
+
+--- Retourne le modèle ped approprié selon le genre et les données du personnage.
+---@param selected table
+---@return string
+local function resolveModel(selected)
+    if selected.model and selected.model ~= "" then
+        return selected.model
+    end
+    return selected.gender == "f" and "mp_f_freemode_01" or "mp_m_freemode_01"
+end
+
+--- Fusionne les données de skin dans charData depuis un enregistrement appearance.
+---@param charData table   Table à enrichir
+---@param appearance table|nil  Résultat de la DB
+local function applySkinData(charData, appearance)
+    if not (appearance and appearance.skin_data) then return end
+
+    local ok, skin = pcall(json.decode, appearance.skin_data)
+    if not (ok and skin) then return end
+
+    charData.hair         = skin.hair
+    charData.headBlend    = skin.headBlend
+    charData.faceFeatures = skin.faceFeatures
+    charData.headOverlays = skin.headOverlays
+    charData.components   = skin.components
+    charData.props        = skin.props
+    charData.tattoos      = skin.tattoos
+end
+
+-- ────────────────────────────────────────────────────────────
+--  Character.create
+-- ────────────────────────────────────────────────────────────
+
+--- Crée un nouveau personnage en base et déclenche le callback.
+---@param player  table
+---@param data    table   { firstname, lastname, dateofbirth, gender }
+---@param callback fun(success: boolean, characterId: number|nil, uniqueId: string|nil)
+function Character.create(player, data, callback)
+    -- Validation des paramètres
+    if not player or not data then
+        return callback and callback(false, nil, nil)
+    end
+
+    if not (data.firstname and data.lastname and data.dateofbirth and data.gender) then
+        Character.logger:warn("Données de personnage invalides pour " .. player.name)
+        return callback and callback(false, nil, nil)
+    end
+
+    -- Nettoyage et normalisation
     local firstname   = Utils.safeString(data.firstname, 50)
-    local lastname    = Utils.safeString(data.lastname, 50)
+    local lastname    = Utils.safeString(data.lastname,  50)
     local dateofbirth = Utils.safeString(data.dateofbirth)
     local gender      = data.gender:lower() == "f" and "f" or "m"
     local model       = gender == "f" and Config.spawn.femaleModel or Config.spawn.defaultModel
     local uniqueId    = ServerUtils.generateUniqueId(12)
 
+    local defPos = Config.spawn.defaultPosition
+
+    -- Insertion du personnage
     Database.insert([[
         INSERT INTO characters
-        (identifier, unique_id, firstname, lastname, dateofbirth, gender, model,
-         position_x, position_y, position_z, heading)
+            (identifier, unique_id, firstname, lastname, dateofbirth, gender, model,
+             position_x, position_y, position_z, heading)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ]], {
-        player.license, uniqueId, firstname, lastname, dateofbirth, gender, model,
-        Config.spawn.defaultPosition.x,
-        Config.spawn.defaultPosition.y,
-        Config.spawn.defaultPosition.z,
-        Config.spawn.defaultHeading
+        player.license, uniqueId,
+        firstname, lastname, dateofbirth, gender, model,
+        defPos.x, defPos.y, defPos.z,
+        Config.spawn.defaultHeading,
     }, function(characterId)
-        if characterId then
-            Database.insert(
-                "INSERT INTO character_appearances (unique_id) VALUES (?)",
-                {uniqueId},
-                function()
-                    Character.logger:info("Character created for " .. player.name .. ": " .. firstname .. " " .. lastname)
-                    player:loadCharacters(function()
-                        if callback then callback(true, characterId, uniqueId) end
-                    end)
-                end
-            )
-        else
-            Character.logger:error("Failed to create character for " .. player.name)
-            if callback then callback(false, nil, nil) end
+        if not characterId then
+            Character.logger:error("Échec de création du personnage pour " .. player.name)
+            return callback and callback(false, nil, nil)
         end
+
+        -- Création de l'entrée d'apparence associée
+        Database.insert(
+            "INSERT INTO character_appearances (unique_id) VALUES (?)",
+            { uniqueId },
+            function()
+                Character.logger:info(
+                    ("Personnage créé pour %s : %s %s"):format(player.name, firstname, lastname)
+                )
+                player:loadCharacters(function()
+                    if callback then callback(true, characterId, uniqueId) end
+                end)
+            end
+        )
     end)
 end
 
+-- ────────────────────────────────────────────────────────────
+--  Character.select
+-- ────────────────────────────────────────────────────────────
+
+--- Sélectionne un personnage, charge son skin, puis déclenche le spawn côté client.
+---@param player      table
+---@param characterId number
+---@param callback    fun(success: boolean, character: table|nil)
 function Character.select(player, characterId, callback)
     if not player or not characterId then
-        if callback then callback(false, nil) end
-        return
+        return callback and callback(false, nil)
     end
 
-    local selected = nil
+    -- Recherche du personnage dans la liste du joueur
+    local selected
     for _, char in ipairs(player.characters) do
         if char.id == characterId then
             selected = char
@@ -65,76 +143,66 @@ function Character.select(player, characterId, callback)
     end
 
     if not selected then
-        Character.logger:warn("Character not found: " .. tostring(characterId))
-        if callback then callback(false, nil) end
-        return
+        Character.logger:warn("Personnage introuvable : " .. tostring(characterId))
+        return callback and callback(false, nil)
     end
 
     player.currentCharacter = selected
-    Character.logger:info("Character selected for " .. player.name .. ": " .. selected.firstname .. " " .. selected.lastname)
+    Character.logger:info(
+        ("Personnage sélectionné pour %s : %s %s"):format(
+            player.name, selected.firstname, selected.lastname
+        )
+    )
 
-    local modelStr
-    if selected.model and selected.model ~= "" then
-        modelStr = selected.model
-    elseif selected.gender == "f" then
-        modelStr = "mp_f_freemode_01"
-    else
-        modelStr = "mp_m_freemode_01"
-    end
+    -- Résolution de la position
+    local position, heading = decodePosition(selected.position)
 
-    local posX = (selected.position_x and selected.position_x ~= 0) and selected.position_x or Config.spawn.defaultPosition.x
-    local posY = (selected.position_y and selected.position_y ~= 0) and selected.position_y or Config.spawn.defaultPosition.y
-    local posZ = (selected.position_z and selected.position_z ~= 0) and selected.position_z or Config.spawn.defaultPosition.z
-
+    -- Construction du payload de spawn
     local charData = {
         id          = selected.id,
         unique_id   = selected.unique_id,
         firstname   = selected.firstname,
         lastname    = selected.lastname,
         gender      = selected.gender,
-        model       = modelStr,
+        model       = resolveModel(selected),
         dateofbirth = selected.dateofbirth,
-        position    = vector3(posX, posY, posZ),
-        heading     = selected.heading or Config.spawn.defaultHeading,
-        health      = selected.health  or Config.character.defaultHealth,
-        armor       = selected.armor   or 0,
+        position    = position,
+        heading     = heading,
+        health      = selected.health or Config.character.defaultHealth,
+        armor       = selected.armor  or 0,
     }
 
-    -- ✅ FIX : charger le skin depuis character_appearances avant le spawn
+    -- Chargement du skin avant le spawn
     Database.fetchOne(
         "SELECT skin_data FROM character_appearances WHERE unique_id = ?",
         { selected.unique_id },
         function(appearance)
-            if appearance and appearance.skin_data then
-                local skin = json.decode(appearance.skin_data)
-                if skin then
-                    charData.hair         = skin.hair
-                    charData.headBlend    = skin.headBlend
-                    charData.faceFeatures = skin.faceFeatures
-                    charData.headOverlays = skin.headOverlays
-                    charData.components   = skin.components
-                    charData.props        = skin.props
-                    charData.tattoos      = skin.tattoos
-                end
-            end
-
+            applySkinData(charData, appearance)
             TriggerClientEvent("union:spawn:apply", player.source, charData)
             if callback then callback(true, selected) end
         end
     )
 end
 
+-- ────────────────────────────────────────────────────────────
+--  Character.delete
+-- ────────────────────────────────────────────────────────────
+
+--- Supprime un personnage et rafraîchit la liste du joueur.
+---@param player      table
+---@param characterId number
+---@param callback    fun(success: boolean)
 function Character.delete(player, characterId, callback)
     if not player or not characterId then
-        if callback then callback(false) end
-        return
+        return callback and callback(false)
     end
+
     Database.execute(
         "DELETE FROM characters WHERE id = ? AND identifier = ?",
-        {characterId, player.license},
+        { characterId, player.license },
         function(result)
             if result then
-                Character.logger:info("Character deleted: " .. characterId)
+                Character.logger:info("Personnage supprimé : " .. tostring(characterId))
                 player:loadCharacters(function()
                     if callback then callback(true) end
                 end)
@@ -145,44 +213,68 @@ function Character.delete(player, characterId, callback)
     )
 end
 
-RegisterNetEvent("union:character:create", function(data)
-    local source = source
+-- ────────────────────────────────────────────────────────────
+--  Net events
+-- ────────────────────────────────────────────────────────────
+
+--- Helper : récupère le joueur depuis la source ou logue un avertissement.
+---@param source number
+---@return table|nil
+local function getPlayer(source)
     local player = PlayerManager.get(source)
     if not player then
-        TriggerClientEvent("union:character:created", source, false)
-        return
+        Character.logger:warn("Joueur introuvable pour la source " .. tostring(source))
     end
+    return player
+end
+
+-- Création
+RegisterNetEvent("union:character:create", function(data)
+    local src    = source
+    local player = getPlayer(src)
+    if not player then
+        return TriggerClientEvent("union:character:created", src, false)
+    end
+
     Character.create(player, data, function(success, id, uniqueId)
-        TriggerClientEvent("union:character:created", source, success, id, uniqueId)
+        TriggerClientEvent("union:character:created", src, success, id, uniqueId)
     end)
 end)
 
+-- Liste
 RegisterNetEvent("union:character:list", function()
-    local source = source
-    local player = PlayerManager.get(source)
+    local src    = source
+    local player = getPlayer(src)
     if not player then return end
-    TriggerClientEvent("union:character:listReceived", source, player.characters)
+
+    TriggerClientEvent("union:character:listReceived", src, player.characters)
 end)
 
+-- Sélection
 RegisterNetEvent("union:character:select", function(characterId)
-    local source = source
-    local player = PlayerManager.get(source)
+    local src    = source
+    local player = getPlayer(src)
     if not player then return end
+
     Character.select(player, characterId, function(success, character)
-        TriggerClientEvent("union:character:selected", source, success, character)
+        TriggerClientEvent("union:character:selected", src, success, character)
     end)
 end)
 
+-- Suppression (permission requise)
 RegisterNetEvent("union:character:delete", function(characterId)
-    local source = source
-    local player = PlayerManager.get(source)
+    local src    = source
+    local player = getPlayer(src)
+
     if not player or not player:hasPermission("character.delete") then
-        TriggerClientEvent("union:character:deleted", source, false)
-        return
+        return TriggerClientEvent("union:character:deleted", src, false)
     end
+
     Character.delete(player, characterId, function(success)
-        TriggerClientEvent("union:character:deleted", source, success)
+        TriggerClientEvent("union:character:deleted", src, success)
     end)
 end)
+
+-- ────────────────────────────────────────────────────────────
 
 return Character
