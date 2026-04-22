@@ -1,28 +1,23 @@
--- ============================================================
---  server/modules/character/main.lua
---  Gestion des personnages : création, sélection, suppression
--- ============================================================
+-- server/modules/character/main.lua
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- FIX: création insère position JSON
+-- FIX: select lit position JSON (compatible avant/après migration)
+-- FIX: resolveModel retourne toujours un modèle GTA V valide
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 Character        = {}
 Character.logger = Logger:child("CHARACTER")
 
--- ────────────────────────────────────────────────────────────
---  Helpers internes
--- ────────────────────────────────────────────────────────────
+-- ─── Helpers internes ─────────────────────────────────────────────────────
 
---- Décode un champ position JSON et retourne (vector3, heading).
---- Si le JSON est absent ou invalide, retourne les valeurs par défaut.
----@param raw string|nil   JSON brut stocké en base
----@return vector3, number
+--- Décode un champ position JSON → (vector3, heading)
 local function decodePosition(raw)
     local defPos = Config.spawn.defaultPosition
     local defHdg = Config.spawn.defaultHeading
 
-    if not raw then
-        return vector3(defPos.x, defPos.y, defPos.z), defHdg
-    end
+    if not raw then return vector3(defPos.x, defPos.y, defPos.z), defHdg end
 
-    local ok, p = pcall(json.decode, raw)
+    local ok, p = pcall(json.decode, tostring(raw))
     if ok and p and p.x then
         return vector3(p.x, p.y, p.z), (p.heading or defHdg)
     end
@@ -30,19 +25,18 @@ local function decodePosition(raw)
     return vector3(defPos.x, defPos.y, defPos.z), defHdg
 end
 
---- Retourne le modèle ped approprié selon le genre et les données du personnage.
----@param selected table
----@return string
+--- Retourne le modèle ped approprié (toujours un string GTA V valide)
 local function resolveModel(selected)
     if selected.model and selected.model ~= "" then
-        return selected.model
+        -- Vérifier que ce n'est pas une valeur enum ("m"/"f")
+        if selected.model == "mp_m_freemode_01" or selected.model == "mp_f_freemode_01" then
+            return selected.model
+        end
     end
     return selected.gender == "f" and "mp_f_freemode_01" or "mp_m_freemode_01"
 end
 
---- Fusionne les données de skin dans charData depuis un enregistrement appearance.
----@param charData table   Table à enrichir
----@param appearance table|nil  Résultat de la DB
+--- Fusionne le skin dans charData
 local function applySkinData(charData, appearance)
     if not (appearance and appearance.skin_data) then return end
 
@@ -58,16 +52,10 @@ local function applySkinData(charData, appearance)
     charData.tattoos      = skin.tattoos
 end
 
--- ────────────────────────────────────────────────────────────
---  Character.create
--- ────────────────────────────────────────────────────────────
-
---- Crée un nouveau personnage en base et déclenche le callback.
----@param player  table
----@param data    table   { firstname, lastname, dateofbirth, gender }
----@param callback fun(success: boolean, characterId: number|nil, uniqueId: string|nil)
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- Character.create
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 function Character.create(player, data, callback)
-    -- Validation des paramètres
     if not player or not data then
         return callback and callback(false, nil, nil)
     end
@@ -77,7 +65,6 @@ function Character.create(player, data, callback)
         return callback and callback(false, nil, nil)
     end
 
-    -- Nettoyage et normalisation
     local firstname   = Utils.safeString(data.firstname, 50)
     local lastname    = Utils.safeString(data.lastname,  50)
     local dateofbirth = Utils.safeString(data.dateofbirth)
@@ -87,24 +74,28 @@ function Character.create(player, data, callback)
 
     local defPos = Config.spawn.defaultPosition
 
-    -- Insertion du personnage
+    -- Stocker la position en JSON
+    local posJson = json.encode({
+        x       = defPos.x,
+        y       = defPos.y,
+        z       = defPos.z,
+        heading = Config.spawn.defaultHeading,
+    })
+
     Database.insert([[
         INSERT INTO characters
-            (identifier, unique_id, firstname, lastname, dateofbirth, gender, model,
-             position_x, position_y, position_z, heading)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            (identifier, unique_id, firstname, lastname, dateofbirth, gender, model, position)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     ]], {
         player.license, uniqueId,
         firstname, lastname, dateofbirth, gender, model,
-        defPos.x, defPos.y, defPos.z,
-        Config.spawn.defaultHeading,
+        posJson,
     }, function(characterId)
         if not characterId then
             Character.logger:error("Échec de création du personnage pour " .. player.name)
             return callback and callback(false, nil, nil)
         end
 
-        -- Création de l'entrée d'apparence associée
         Database.insert(
             "INSERT INTO character_appearances (unique_id) VALUES (?)",
             { uniqueId },
@@ -120,20 +111,15 @@ function Character.create(player, data, callback)
     end)
 end
 
--- ────────────────────────────────────────────────────────────
---  Character.select
--- ────────────────────────────────────────────────────────────
-
---- Sélectionne un personnage, charge son skin, puis déclenche le spawn côté client.
----@param player      table
----@param characterId number
----@param callback    fun(success: boolean, character: table|nil)
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- Character.select
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 function Character.select(player, characterId, callback)
     if not player or not characterId then
         return callback and callback(false, nil)
     end
 
-    -- Recherche du personnage dans la liste du joueur
+    -- Chercher le personnage dans la liste du joueur
     local selected
     for _, char in ipairs(player.characters) do
         if char.id == characterId then
@@ -154,10 +140,22 @@ function Character.select(player, characterId, callback)
         )
     )
 
-    -- Résolution de la position
-    local position, heading = decodePosition(selected.position)
+    -- Résoudre la position — compatible avant et après migration SQL
+    local position, heading
 
-    -- Construction du payload de spawn
+    if selected.position then
+        -- Nouveau schéma : colonne JSON
+        position, heading = decodePosition(selected.position)
+    elseif selected.position_x and selected.position_x ~= 0 then
+        -- Ancien schéma : colonnes séparées (avant migration)
+        position = vector3(selected.position_x, selected.position_y, selected.position_z)
+        heading  = selected.heading or Config.spawn.defaultHeading
+    else
+        position = Config.spawn.defaultPosition
+        heading  = Config.spawn.defaultHeading
+    end
+
+    -- Construire le payload de spawn
     local charData = {
         id          = selected.id,
         unique_id   = selected.unique_id,
@@ -172,7 +170,7 @@ function Character.select(player, characterId, callback)
         armor       = selected.armor  or 0,
     }
 
-    -- Chargement du skin avant le spawn
+    -- Charger le skin avant le spawn
     Database.fetchOne(
         "SELECT skin_data FROM character_appearances WHERE unique_id = ?",
         { selected.unique_id },
@@ -184,14 +182,9 @@ function Character.select(player, characterId, callback)
     )
 end
 
--- ────────────────────────────────────────────────────────────
---  Character.delete
--- ────────────────────────────────────────────────────────────
-
---- Supprime un personnage et rafraîchit la liste du joueur.
----@param player      table
----@param characterId number
----@param callback    fun(success: boolean)
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- Character.delete
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 function Character.delete(player, characterId, callback)
     if not player or not characterId then
         return callback and callback(false)
@@ -213,13 +206,10 @@ function Character.delete(player, characterId, callback)
     )
 end
 
--- ────────────────────────────────────────────────────────────
---  Net events
--- ────────────────────────────────────────────────────────────
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- Net events
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
---- Helper : récupère le joueur depuis la source ou logue un avertissement.
----@param source number
----@return table|nil
 local function getPlayer(source)
     local player = PlayerManager.get(source)
     if not player then
@@ -228,7 +218,6 @@ local function getPlayer(source)
     return player
 end
 
--- Création
 RegisterNetEvent("union:character:create", function(data)
     local src    = source
     local player = getPlayer(src)
@@ -241,7 +230,6 @@ RegisterNetEvent("union:character:create", function(data)
     end)
 end)
 
--- Liste
 RegisterNetEvent("union:character:list", function()
     local src    = source
     local player = getPlayer(src)
@@ -250,7 +238,6 @@ RegisterNetEvent("union:character:list", function()
     TriggerClientEvent("union:character:listReceived", src, player.characters)
 end)
 
--- Sélection
 RegisterNetEvent("union:character:select", function(characterId)
     local src    = source
     local player = getPlayer(src)
@@ -261,7 +248,6 @@ RegisterNetEvent("union:character:select", function(characterId)
     end)
 end)
 
--- Suppression (permission requise)
 RegisterNetEvent("union:character:delete", function(characterId)
     local src    = source
     local player = getPlayer(src)
@@ -274,7 +260,5 @@ RegisterNetEvent("union:character:delete", function(characterId)
         TriggerClientEvent("union:character:deleted", src, success)
     end)
 end)
-
--- ────────────────────────────────────────────────────────────
 
 return Character

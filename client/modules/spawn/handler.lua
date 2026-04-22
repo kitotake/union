@@ -1,4 +1,8 @@
 -- client/modules/spawn/handler.lua
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- Gestion du spawn client : chargement modèle, collisions, fade, freeze
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
 Spawn.Handler = {}
 
 function Spawn.Handler.getLastPosition()
@@ -22,100 +26,100 @@ function Spawn.Handler.applyOutfit(ped, outfitStyle)
     Spawn.Handler.setDefaultClothes(ped)
 end
 
--- CreateThread(function()
---     local playerId = PlayerId()
-
---     -- Écran noir direct (évite les flashs)
---     DoScreenFadeOut(0)
-
---     -- Attendre que le joueur soit actif sur le réseau
---     while not NetworkIsPlayerActive(playerId) do
---         Wait(0)
---     end
-
---     local ped = PlayerPedId()
-
---     -- Rendre invisible + freeze pendant le chargement
---     SetEntityVisible(ped, false, false)
---     FreezeEntityPosition(ped, true)
---     SetPlayerInvincible(playerId, true)
-
---     local coords = GetEntityCoords(ped)
-
---     -- Charger les collisions à la position
---     RequestCollisionAtCoord(coords.x, coords.y, coords.z)
-
---     while not HasCollisionLoadedAroundEntity(ped) do
---         Wait(0)
---     end
-
---     -- Stop loading screen
---     ShutdownLoadingScreen()
---     ShutdownLoadingScreenNui()
-
---     -- Réactiver le joueur
---     SetEntityVisible(ped, true, false)
---     -- joueur UNFREEZE
---     FreezeEntityPosition(ped, false)
---     -- joueur redevient vulnérable
---     SetPlayerInvincible(playerId, false)
-
---     -- Fade in propre
---     DoScreenFadeIn(1000)
--- end)
-
-
--- Auto-initialize spawn on player enter world
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- THREAD D'INITIALISATION AU DÉMARRAGE
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 CreateThread(function()
-    -- Attendre que le joueur soit actif sur le réseau
-    while not NetworkIsPlayerActive(PlayerId()) do
-        Wait(100)
+    local playerId = PlayerId()
+
+    -- ── 1. Attendre que le joueur soit actif sur le réseau ────────────────
+    while not NetworkIsPlayerActive(playerId) do
+        Wait(0)
     end
 
-    Wait(2000)
-    ShutdownLoadingScreen()
-    ShutdownLoadingScreenNui()
+    -- ── 2. Écran noir immédiat pour éviter les flashs ────────────────────
+    DoScreenFadeOut(0)
 
-    -- Charger le modèle temporaire (pendant le chargement des données)
+    local ped = PlayerPedId()
+
+    -- ── 3. Rendre invisible + freeze + invincible pendant le chargement ──
+    SetEntityVisible(ped, false, false)
+    FreezeEntityPosition(ped, true)
+    SetPlayerInvincible(playerId, true)
+
+    -- ── 4. Charger le modèle temporaire ──────────────────────────────────
     local tempModel = Config.spawn.temporaryModel
-    RequestModel(GetHashKey(tempModel))
+    local tempHash  = GetHashKey(tempModel)
+    RequestModel(tempHash)
 
     local startTime = GetGameTimer()
-    while not HasModelLoaded(GetHashKey(tempModel)) do
+    while not HasModelLoaded(tempHash) do
         Wait(50)
         if GetGameTimer() - startTime > 5000 then
-            Logger:error("Failed to load temporary model")
+            Logger:error("Failed to load temporary model: " .. tempModel)
             break
         end
     end
 
-    SetPlayerModel(PlayerId(), GetHashKey(tempModel))
-    SetModelAsNoLongerNeeded(GetHashKey(tempModel))
+    SetPlayerModel(playerId, tempHash)
+    SetModelAsNoLongerNeeded(tempHash)
 
-    -- Notifier le serveur que le joueur est prêt
-    -- Le serveur va créer l'entrée dans PlayerManager et charger les données
+    -- Récupérer le nouveau ped après changement de modèle
+    ped = PlayerPedId()
+
+    -- ── 5. Charger les collisions à la position courante ─────────────────
+    local coords = GetEntityCoords(ped)
+
+    -- Fallback si le ped est à (0,0,0) — pas encore placé
+    if math.abs(coords.x) < 1.0 and math.abs(coords.y) < 1.0 then
+        coords = Config.spawn.defaultPosition
+    end
+
+    RequestCollisionAtCoord(coords.x, coords.y, coords.z)
+
+    local collTimeout = GetGameTimer() + 8000
+    while not HasCollisionLoadedAroundEntity(ped) and GetGameTimer() < collTimeout do
+        Wait(0)
+    end
+
+    -- ── 6. Arrêter le loading screen ────────────────────────────────────
+    ShutdownLoadingScreen()
+    ShutdownLoadingScreenNui()
+
+    -- ── 7. Notifier le serveur que le joueur est prêt ────────────────────
     TriggerServerEvent("union:player:joined")
 
-    -- Attendre que le serveur confirme le chargement du joueur
-    -- avant de demander le spawn
+    -- ── 8. Attendre la confirmation serveur (max 10s) ────────────────────
     local loaded = false
-    RegisterNetEvent("union:player:loaded", function()
+    local loadHandler
+
+    loadHandler = AddEventHandler("union:player:loaded", function()
         loaded = true
+        RemoveEventHandler(loadHandler)
     end)
 
-    -- Timeout de sécurité : 10 secondes max
     local timeout = GetGameTimer() + 10000
     while not loaded and GetGameTimer() < timeout do
         Wait(100)
     end
 
     if not loaded then
-        Logger:error("Player load timeout - forcing spawn anyway")
+        Logger:error("Player load timeout — forcing spawn anyway")
     end
 
+    -- ── 9. Réactiver le joueur ───────────────────────────────────────────
+    SetEntityVisible(ped, true, false)
+    FreezeEntityPosition(ped, false)
+    SetPlayerInvincible(playerId, false)
+
+    -- ── 10. Fade in propre ───────────────────────────────────────────────
+    DoScreenFadeIn(800)
+
+    -- ── 11. Signaler que le client est prêt ─────────────────────────────
     Client.isReady = true
     TriggerEvent("union:client:ready")
-    Logger:info("Client ready, requesting spawn")
+    Logger:info("Client ready — requesting initial spawn")
 
+    -- ── 12. Demander le spawn initial ────────────────────────────────────
     Spawn.initialize()
 end)
