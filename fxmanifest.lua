@@ -3,7 +3,7 @@ game 'gta5'
 
 name 'Union Framework'
 author 'Union Kitotake'
-version '0.0.20'
+version '0.0.21'
 description 'Framework RP complet pour FiveM modular'
 
 shared_scripts {
@@ -74,10 +74,17 @@ server_scripts {
     'server/modules/spawn/handler.lua',
     'server/modules/spawn/position.lua',
 
-    -- Job Module
-    'server/modules/job/main.lua',
-    'server/modules/job/datebase.lua',
+    -- Inventory Module
+    'server/modules/inventory/main.lua',
 
+    -- Vehicle Module
+    'server/modules/vehicle/main.lua',
+    'server/modules/vehicle/database.lua',
+
+    -- Job Module
+   /* 'server/modules/job/main.lua',
+    'server/modules/job/database.lua',
+*/
     -- Bank Module
     'server/modules/bank/main.lua',
     'server/modules/bank/database.lua',
@@ -105,6 +112,15 @@ server_exports {
     'GetAllPlayers',
     'GetConfig',
     'GetLogger',
+
+     -- [AJOUT] exports inventaire
+    'AddItem',
+    'RemoveItem',
+    'GetItemCount',
+    'CanCarryItem',
+    'GiveMoney',
+    'RemoveMoney',
+    'GetMoney',
 }
 
 client_exports {

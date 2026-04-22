@@ -121,9 +121,6 @@ CREATE TABLE IF NOT EXISTS `character_outfits` (
         ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
--- ============================================
--- OWNED VEHICLES
--- ============================================
 CREATE TABLE IF NOT EXISTS `owned_vehicles` (
     `id` INT UNSIGNED AUTO_INCREMENT,
     `plate` VARCHAR(12) NOT NULL,
@@ -132,12 +129,16 @@ CREATE TABLE IF NOT EXISTS `owned_vehicles` (
     `vehicle_model` VARCHAR(50) NOT NULL,
     `vehicle_props` LONGTEXT,
 
+    `trunk` LONGTEXT,
+    `glovebox` LONGTEXT,
+
     `stored` TINYINT(1) DEFAULT 1,
     `garage_name` VARCHAR(50) DEFAULT 'central',
 
     `fuel` FLOAT DEFAULT 100,
     `engine_health` FLOAT DEFAULT 1000,
     `body_health` FLOAT DEFAULT 1000,
+    `dirt_level` FLOAT DEFAULT 0,
 
     `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
