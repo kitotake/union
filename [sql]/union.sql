@@ -285,23 +285,23 @@ CREATE TABLE IF NOT EXISTS `user_licenses` (
 
 
 -- ============================================
--- ACTION LOGS
+-- ACTION LOGS a modifier 
 -- ============================================
-CREATE TABLE IF NOT EXISTS `action_logs` (
-    `id` INT AUTO_INCREMENT,
-    `user_id` INT,
-    `character_id` INT,
+-- CREATE TABLE IF NOT EXISTS `action_logs` (
+--     `id` INT AUTO_INCREMENT,
+--     `user_id` INT,
+--     `character_id` INT,
 
-    `action` VARCHAR(100) NOT NULL,
-    `details` TEXT,
+--     `action` VARCHAR(100) NOT NULL,
+--     `details` TEXT,
 
-    `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+--     `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
-    PRIMARY KEY (`id`),
-    INDEX `idx_user` (`user_id`),
-    INDEX `idx_character` (`character_id`),
-    INDEX `idx_action` (`action`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+--     PRIMARY KEY (`id`),
+--     INDEX `idx_user` (`user_id`),
+--     INDEX `idx_character` (`character_id`),
+--     INDEX `idx_action` (`action`)
+-- ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- ============================================
 -- DEFAULT DATA
