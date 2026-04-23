@@ -28,12 +28,19 @@ end
 
 function ServerUtils.generateUniqueId(length)
     length = length or 12
-    local chars = "abcdefghijklmnopqrstuvwxyz0123456789"
-    local id = "chr_"
+    local chars = "0123456789"
+    local id = ""
+
     for i = 1, length do
         local rand = math.random(#chars)
         id = id .. chars:sub(rand, rand)
     end
+
+    -- évite double prefix
+    if not id:find("^chr_") then
+        id = "chr_" .. id
+    end
+
     return id
 end
 

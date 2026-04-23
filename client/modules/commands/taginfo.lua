@@ -1,94 +1,69 @@
--- client/modules/commands/taginfo.lua
 local activeTags = {}
-local tagThread = nil
 local isRunning = false
 
-local function createTag(playerId, data)
-    activeTags[playerId] = data
+-- =========================
+-- Draw 3D Text
+-- =========================
+local function DrawText3D(x, y, z, text)
+    local onScreen, _x, _y = World3dToScreen2d(x, y, z)
+    local camCoords = GetGameplayCamCoords()
+
+    local dist = #(camCoords - vector3(x, y, z))
+    local scale = (1 / dist) * 2
+    local fov = (1 / GetGameplayCamFov()) * 100
+    scale = scale * fov
+
+    if onScreen then
+        SetTextScale(0.0 * scale, 0.35 * scale)
+        SetTextFont(4)
+        SetTextCentre(true)
+        SetTextOutline()
+
+        BeginTextCommandDisplayText("STRING")
+        AddTextComponentSubstringPlayerName(text)
+        EndTextCommandDisplayText(_x, _y)
+    end
 end
 
-local function removeTag(playerId)
-    activeTags[playerId] = nil
-end
-
+-- =========================
+-- Clear
+-- =========================
 local function clearAllTags()
     activeTags = {}
     isRunning = false
 end
 
+-- =========================
+-- Thread Render
+-- =========================
 local function startRenderThread()
     if isRunning then return end
     isRunning = true
 
     CreateThread(function()
         while isRunning do
-            local playerPed = PlayerPedId()
+            local myPed = PlayerPedId()
+            local myCoords = GetEntityCoords(myPed)
 
-            for targetId, data in pairs(activeTags) do
-                local targetPed = GetPlayerPed(GetPlayerFromServerId(targetId))
+            for serverId, data in pairs(activeTags) do
+                local player = GetPlayerFromServerId(serverId)
 
-                if DoesEntityExist(targetPed) and not IsEntityDead(targetPed) then
-                    local targetCoords = GetEntityCoords(targetPed)
-                    local myCoords = GetEntityCoords(playerPed)
-                    local dist = #(targetCoords - myCoords)
+                if player ~= -1 then
+                    local targetPed = GetPlayerPed(player)
 
-                    if dist <= 30.0 then
-                        local tagPos = vector3(
-                            targetCoords.x,
-                            targetCoords.y,
-                            targetCoords.z + 1.15
-                        )
+                    if DoesEntityExist(targetPed) and not IsEntityDead(targetPed) then
+                        local coords = GetEntityCoords(targetPed)
+                        local dist = #(coords - myCoords)
 
-                        -- Fond noir semi-transparent
-                        local r, g, b, a = 0, 0, 0, 160
-                        DrawMarker(
-                            28,
-                            tagPos.x, tagPos.y, tagPos.z + 0.25,
-                            0.0, 0.0, 0.0,
-                            0.0, 0.0, 0.0,
-                            0.55, 0.22, 0.01,
-                            r, g, b, a,
-                            false, true, 2, false, nil, nil, false
-                        )
+                        if dist <= 50.0 then
+                            local baseZ = coords.z + 1.2
 
-                        -- ID du joueur (jaune)
-                        SetTextScale(0.0, 0.28)
-                        SetTextFont(4)
-                        SetTextColour(255, 220, 50, 255)
-                        SetTextOutline()
-                        SetTextCentre(true)
-                        BeginTextCommandDisplayText("STRING")
-                        AddTextComponentSubstringPlayerName("ID: " .. targetId)
-                        EndTextCommandDisplayText3dWithFont(
-                            tagPos.x, tagPos.y, tagPos.z + 0.38,
-                            0
-                        )
+                            
 
-                        -- Nom Steam (blanc)
-                        SetTextScale(0.0, 0.24)
-                        SetTextFont(4)
-                        SetTextColour(255, 255, 255, 255)
-                        SetTextOutline()
-                        SetTextCentre(true)
-                        BeginTextCommandDisplayText("STRING")
-                        AddTextComponentSubstringPlayerName(data.steamName)
-                        EndTextCommandDisplayText3dWithFont(
-                            tagPos.x, tagPos.y, tagPos.z + 0.26,
-                            0
-                        )
-
-                        -- Unique ID (gris clair)
-                        SetTextScale(0.0, 0.20)
-                        SetTextFont(4)
-                        SetTextColour(180, 180, 180, 255)
-                        SetTextOutline()
-                        SetTextCentre(true)
-                        BeginTextCommandDisplayText("STRING")
-                        AddTextComponentSubstringPlayerName("UID: " .. data.uniqueId)
-                        EndTextCommandDisplayText3dWithFont(
-                            tagPos.x, tagPos.y, tagPos.z + 0.14,
-                            0
-                        )
+                            DrawText3D(coords.x, coords.y, baseZ + 0.15, ("ID: %s"):format(serverId))
+                            DrawText3D(coords.x, coords.y, baseZ, data.steamName or "Unknown")
+                            DrawText3D(coords.x, coords.y, baseZ - 0.15, ("UID: %s"):format(data.uniqueId or "N/A"))
+                        end
                     end
                 end
             end
@@ -98,33 +73,35 @@ local function startRenderThread()
     end)
 end
 
--- Réception des données depuis le serveur
+-- =========================
+-- Event réception
+-- =========================
 RegisterNetEvent("union:taginfo:receive", function(players)
     clearAllTags()
 
     if not players or #players == 0 then
-        Notifications.send("Aucun joueur en ligne.", "warning")
+        print("[TAGINFO] Aucun joueur reçu")
         return
     end
 
     for _, p in ipairs(players) do
-        createTag(p.serverId, {
+        activeTags[p.serverId] = {
             steamName = p.steamName,
-            uniqueId  = p.uniqueId,
-        })
+            uniqueId  = p.uniqueId
+        }
     end
 
     startRenderThread()
-    Notifications.send("Tags affichés pour " .. #players .. " joueur(s). /taginfo off pour masquer.", "info")
+    print("[TAGINFO] Tags activés:", #players)
 end)
 
--- Commande principale
-RegisterCommand("taginfo", function(source, args)
-    local sub = args[1]
-
-    if sub == "off" then
+-- =========================
+-- Commande
+-- =========================
+RegisterCommand("taginfo", function(_, args)
+    if args[1] == "off" then
         clearAllTags()
-        Notifications.send("Tags masqués.", "info")
+        print("[TAGINFO] Désactivé")
         return
     end
 

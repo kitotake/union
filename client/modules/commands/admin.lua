@@ -1,107 +1,125 @@
--- client/modules/commands/admin.lua
+-- client/modules/admin/client.lua
 
 -----------------------------------------
--- CONFIG
+-- HEAL
 -----------------------------------------
-local ADMIN_ACE = "admin"
+RegisterNetEvent("admin:heal:client", function()
+    local ped = PlayerPedId()
+
+    SetEntityHealth(ped, 200)
+    ClearPedBloodDamage(ped)
+end)
 
 -----------------------------------------
--- CLIENT SIDE
+-- REVIVE
 -----------------------------------------
-if not IsDuplicityVersion() then
+RegisterNetEvent("admin:revive:client", function()
+    local ped = PlayerPedId()
+    local coords = GetEntityCoords(ped)
 
-    local isLoaded = false
+    NetworkResurrectLocalPlayer(coords.x, coords.y, coords.z, GetEntityHeading(ped), true, false)
+    SetEntityHealth(ped, 200)
+end)
 
-    -- Player loaded event (à adapter si besoin)
-    RegisterNetEvent("union:playerLoaded", function()
-        isLoaded = true
-    end)
+RegisterNetEvent("admin:revivezone:client", function(radius)
+    local adminPed = PlayerPedId()
+    local adminCoords = GetEntityCoords(adminPed)
 
-    -----------------------------------------
-    -- COMMANDES
-    -----------------------------------------
+    local players = GetActivePlayers()
 
-    RegisterCommand("respawn", function()
-        TriggerServerEvent("admin:respawn")
-    end, false)
+    for _, player in ipairs(players) do
+        local ped = GetPlayerPed(player)
+        local coords = GetEntityCoords(ped)
 
-    RegisterCommand("revive", function()
-        TriggerServerEvent("admin:respawn")
-    end, false)
+        local dist = #(adminCoords - coords)
 
-    RegisterCommand("heal", function()
-        TriggerServerEvent("admin:heal")
-    end, false)
-
-    -----------------------------------------
-    -- EVENTS CLIENT
-    -----------------------------------------
-
-    RegisterNetEvent("admin:respawn:client", function()
-        if not isLoaded then
-            print("[ADMIN] Player not loaded, respawn cancelled")
-            return
+        if dist <= radius then
+            -- revive local player
+            NetworkResurrectLocalPlayer(coords.x, coords.y, coords.z, GetEntityHeading(ped), true, false)
+            SetEntityHealth(PlayerPedId(), 200)
         end
-
-        if Spawn and Spawn.respawn then
-            local success = Spawn.respawn()
-
-            if not success then
-                print("[ADMIN] Respawn failed (Spawn returned false)")
-            end
-        else
-            print("[ADMIN] Spawn system not found")
-        end
-    end)
-
-    RegisterNetEvent("admin:heal:client", function()
-        local ped = PlayerPedId()
-
-        if DoesEntityExist(ped) then
-            SetEntityHealth(ped, 200)
-            print("[ADMIN] Player healed")
-        end
-    end)
-
-end
-
------------------------------------------
--- SERVER SIDE
------------------------------------------
-if IsDuplicityVersion() then
-
-    local function hasPermission(src)
-        return IsPlayerAceAllowed(src, ADMIN_ACE)
     end
+end)
 
-    -----------------------------------------
-    -- RESPAWN
-    -----------------------------------------
-    RegisterNetEvent("admin:respawn", function()
-        local src = source
+-----------------------------------------
+-- /id (affiche l'id joueur dans F8)
+-----------------------------------------
+RegisterCommand("id", function()
+    local playerId = GetPlayerServerId(PlayerId())
 
-        if not hasPermission(src) then
-            print(("[SECURITY] %s tried /respawn without permission"):format(src))
-            return
+    print(("[INFO] Votre ID serveur est : %s"):format(playerId))
+end, false)
+
+-----------------------------------------
+-- BRING (target -> admin)
+-----------------------------------------
+RegisterNetEvent("admin:bring:client", function(adminId)
+    local adminPed = GetPlayerPed(GetPlayerFromServerId(adminId))
+    if not adminPed then return end
+
+    local coords = GetEntityCoords(adminPed)
+    SetEntityCoords(PlayerPedId(), coords.x, coords.y, coords.z)
+end)
+
+-----------------------------------------
+-- GOTO (admin -> target)
+-----------------------------------------
+RegisterNetEvent("admin:goto:client", function(targetId)
+    local targetPed = GetPlayerPed(GetPlayerFromServerId(targetId))
+    if not targetPed then return end
+
+    local coords = GetEntityCoords(targetPed)
+    SetEntityCoords(PlayerPedId(), coords.x, coords.y, coords.z)
+end)
+
+-----------------------------------------
+-- SPECTATE
+-----------------------------------------
+local spectating = false
+
+RegisterNetEvent("admin:spectate:client", function(targetId)
+    local targetPed = GetPlayerPed(GetPlayerFromServerId(targetId))
+    if not targetPed then return end
+
+    spectating = not spectating
+
+    if spectating then
+        NetworkSetInSpectatorMode(true, targetPed)
+    else
+        NetworkSetInSpectatorMode(false, targetPed)
+    end
+end)
+
+-----------------------------------------
+-- TP
+-----------------------------------------
+RegisterNetEvent("admin:tp:client", function(coords)
+    SetEntityCoords(PlayerPedId(), coords.x, coords.y, coords.z)
+end)
+
+RegisterNetEvent("admin:tpa:client", function()
+    local ped = PlayerPedId()
+
+    -- Check waypoint blip
+    local blip = GetFirstBlipInfoId(8) -- 8 = waypoint
+    if DoesBlipExist(blip) then
+
+        local coord = GetBlipInfoIdCoord(blip)
+
+        -- Ground Z detection
+        local foundGround, z = GetGroundZFor_3dCoord(coord.x, coord.y, 1000.0, false)
+
+        if foundGround then
+            SetEntityCoords(ped, coord.x, coord.y, z + 1.0, false, false, false, true)
+        else
+            SetEntityCoords(ped, coord.x, coord.y, coord.z + 1.0, false, false, false, true)
         end
 
-        print(("[ADMIN] %s used /respawn"):format(src))
-        TriggerClientEvent("admin:respawn:client", src)
-    end)
+        SetPedToRagdoll(ped, 1000, 1000, 0, false, false, false)
 
-    -----------------------------------------
-    -- HEAL
-    -----------------------------------------
-    RegisterNetEvent("admin:heal", function()
-        local src = source
-
-        if not hasPermission(src) then
-            print(("[SECURITY] %s tried /heal without permission"):format(src))
-            return
-        end
-
-        print(("[ADMIN] %s used /heal"):format(src))
-        TriggerClientEvent("admin:heal:client", src)
-    end)
-
-end
+    else
+        TriggerEvent("chat:addMessage", {
+            args = { "^3ADMIN", "Aucun GPS actif (waypoint requis)" }
+        })
+    end
+end)
