@@ -43,7 +43,7 @@ CreateThread(function()
     local ped = PlayerPedId()
 
     -- ── 3. Rendre invisible + freeze + invincible pendant le chargement ──
-    SetEntityVisible(ped, false, false)
+    SetEntityVisible(ped, true, false)
     FreezeEntityPosition(ped, true)
     SetPlayerInvincible(playerId, true)
 
