@@ -3,11 +3,11 @@ game 'gta5'
 
 name 'Union Framework'
 author 'Union Kitotake'
-version '0.0.21'
-description 'Framework RP complet pour FiveM modular'
+version '0.0.25'
+description 'Framework RP modular'
 
 shared_scripts {
-    '@kt_lib/init.lua', -- ← EN PREMIER, expose lib, cache, require
+    '@kt_lib/init.lua',
     'shared/constants.lua',
     'shared/utils.lua',
 }
@@ -31,6 +31,10 @@ client_scripts {
     'client/modules/character/create.lua',
     'client/modules/character/select.lua',
 
+    -- Peds persistants hors-ligne (doit être chargé avant spawn/main.lua si possible,
+    -- mais après logger.lua — l'ordre ici est correct)
+    'client/modules/player/offline_ped.lua',
+
     'client/modules/commands/character.lua',
     'client/modules/commands/admin.lua',
     'client/modules/commands/debug.lua',
@@ -38,7 +42,6 @@ client_scripts {
     'client/modules/commands/job.lua',
     'client/modules/commands/bank.lua',
     'client/modules/commands/vehicle.lua',
-
 }
 
 server_scripts {
@@ -61,6 +64,7 @@ server_scripts {
     'server/modules/player/main.lua',
     'server/modules/player/manager.lua',
     'server/modules/player/persistence.lua',
+    'server/modules/player/offline_ped.lua',   -- ← NOUVEAU
 
     -- Character Module
     'server/modules/character/main.lua',
@@ -98,9 +102,8 @@ server_scripts {
     'server/modules/commands/character.lua',
     'server/modules/commands/admin.lua',
     'server/modules/commands/debug.lua',
-    'server/modules/commands/taginfo.lua', 
+    'server/modules/commands/taginfo.lua',
     'server/modules/commands/job.lua',
-    
 }
 
 dependencies {
@@ -112,8 +115,6 @@ server_exports {
     'GetAllPlayers',
     'GetConfig',
     'GetLogger',
-
-     -- [AJOUT] exports inventaire
     'AddItem',
     'RemoveItem',
     'GetItemCount',

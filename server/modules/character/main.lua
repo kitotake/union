@@ -1,16 +1,32 @@
--- server/modules/character/main.lua
--- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- FIX: création insère position JSON
--- FIX: select lit position JSON (compatible avant/après migration)
--- FIX: resolveModel retourne toujours un modèle GTA V valide
--- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- server/modules/character/main.lua (extrait — partie select uniquement)
+-- AJOUT: suppression du ped offline quand un personnage est sélectionné
+
+-- Patch à appliquer dans la fonction Character.select existante,
+-- juste avant TriggerClientEvent("union:spawn:apply", ...)
+
+-- Dans la callback de Database.fetchOne pour le skin :
+--
+--   function(appearance)
+--       applySkinData(charData, appearance)
+--
+--       -- ✅ AJOUT: supprimer le ped offline de ce personnage sur tous les clients
+--       if OfflinePed then
+--           OfflinePed.remove(selected.unique_id)
+--       end
+--
+--       TriggerClientEvent("union:spawn:apply", player.source, charData)
+--       if callback then callback(true, selected) end
+--   end
+--
+-- Ce fichier est un PATCH GUIDE — appliquer la modification dans
+-- server/modules/character/main.lua à la ligne correspondante.
+--
+-- ─────────────────────────────────────────────────────────────────────────
+-- Voici le fichier complet avec le patch intégré :
 
 Character        = {}
 Character.logger = Logger:child("CHARACTER")
 
--- ─── Helpers internes ─────────────────────────────────────────────────────
-
---- Décode un champ position JSON → (vector3, heading)
 local function decodePosition(raw)
     local defPos = Config.spawn.defaultPosition
     local defHdg = Config.spawn.defaultHeading
@@ -25,10 +41,8 @@ local function decodePosition(raw)
     return vector3(defPos.x, defPos.y, defPos.z), defHdg
 end
 
---- Retourne le modèle ped approprié (toujours un string GTA V valide)
 local function resolveModel(selected)
     if selected.model and selected.model ~= "" then
-        -- Vérifier que ce n'est pas une valeur enum ("m"/"f")
         if selected.model == "mp_m_freemode_01" or selected.model == "mp_f_freemode_01" then
             return selected.model
         end
@@ -36,7 +50,6 @@ local function resolveModel(selected)
     return selected.gender == "f" and "mp_f_freemode_01" or "mp_m_freemode_01"
 end
 
---- Fusionne le skin dans charData
 local function applySkinData(charData, appearance)
     if not (appearance and appearance.skin_data) then return end
 
@@ -52,9 +65,6 @@ local function applySkinData(charData, appearance)
     charData.tattoos      = skin.tattoos
 end
 
--- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- Character.create
--- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 function Character.create(player, data, callback)
     if not player or not data then
         return callback and callback(false, nil, nil)
@@ -74,7 +84,6 @@ function Character.create(player, data, callback)
 
     local defPos = Config.spawn.defaultPosition
 
-    -- Stocker la position en JSON
     local posJson = json.encode({
         x       = defPos.x,
         y       = defPos.y,
@@ -111,15 +120,11 @@ function Character.create(player, data, callback)
     end)
 end
 
--- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- Character.select
--- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 function Character.select(player, characterId, callback)
     if not player or not characterId then
         return callback and callback(false, nil)
     end
 
-    -- Chercher le personnage dans la liste du joueur
     local selected
     for _, char in ipairs(player.characters) do
         if char.id == characterId then
@@ -140,14 +145,11 @@ function Character.select(player, characterId, callback)
         )
     )
 
-    -- Résoudre la position — compatible avant et après migration SQL
     local position, heading
 
     if selected.position then
-        -- Nouveau schéma : colonne JSON
         position, heading = decodePosition(selected.position)
     elseif selected.position_x and selected.position_x ~= 0 then
-        -- Ancien schéma : colonnes séparées (avant migration)
         position = vector3(selected.position_x, selected.position_y, selected.position_z)
         heading  = selected.heading or Config.spawn.defaultHeading
     else
@@ -155,7 +157,6 @@ function Character.select(player, characterId, callback)
         heading  = Config.spawn.defaultHeading
     end
 
-    -- Construire le payload de spawn
     local charData = {
         id          = selected.id,
         unique_id   = selected.unique_id,
@@ -170,21 +171,23 @@ function Character.select(player, characterId, callback)
         armor       = selected.armor  or 0,
     }
 
-    -- Charger le skin avant le spawn
     Database.fetchOne(
         "SELECT skin_data FROM character_appearances WHERE unique_id = ?",
         { selected.unique_id },
         function(appearance)
             applySkinData(charData, appearance)
+
+            -- ✅ Supprimer le ped offline persistant de ce personnage sur tous les clients
+            if OfflinePed then
+                OfflinePed.remove(selected.unique_id)
+            end
+
             TriggerClientEvent("union:spawn:apply", player.source, charData)
             if callback then callback(true, selected) end
         end
     )
 end
 
--- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- Character.delete
--- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 function Character.delete(player, characterId, callback)
     if not player or not characterId then
         return callback and callback(false)
@@ -205,10 +208,6 @@ function Character.delete(player, characterId, callback)
         end
     )
 end
-
--- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- Net events
--- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 local function getPlayer(source)
     local player = PlayerManager.get(source)

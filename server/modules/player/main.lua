@@ -1,40 +1,41 @@
 -- server/modules/player/main.lua
--- FIX: suppression de "UPDATE users SET last_login = NOW()" → ping DB inutile
---      (last_login peut être mis à jour à playerDropped si vraiment nécessaire)
+-- FIX: le nom "Player" entre en conflit avec le native FiveM Player(source)
+--      → La classe est exportée sous le nom "PlayerClass" pour que manager.lua
+--        puisse l'utiliser sans ambiguïté.
 
-Player = {}
-Player.metatable = {}
-Player.metatable.__index = Player
-Player.logger = Logger:child("PLAYER")
+PlayerClass = {}
+PlayerClass.metatable = {}
+PlayerClass.metatable.__index = PlayerClass
+PlayerClass.logger = Logger:child("PLAYER")
 
-function Player.new(source)
-    local self = setmetatable({}, Player.metatable)
+function PlayerClass.new(source)
+    local self = setmetatable({}, PlayerClass.metatable)
 
-    self.source = source
+    self.source      = source
     self.identifiers = Auth.Identifier.get(source)
-    self.license = self.identifiers.license
-    self.discord = self.identifiers.discord
-    self.name = self.identifiers.name
-    self.ip = self.identifiers.ip
+    self.license     = self.identifiers.license
+    self.discord     = self.identifiers.discord
+    self.name        = self.identifiers.name
+    self.ip          = self.identifiers.ip
 
-    self.userId = nil
-    self.characters = {}
+    self.userId           = nil
+    self.characters       = {}
     self.currentCharacter = nil
-    self.permission = 0
-    self.group = "user"
+    self.permission       = 0
+    self.group            = "user"
 
-    self.isLoading = true
-    self.isSpawned = false
+    self.isLoading    = true
+    self.isSpawned    = false
     self.lastActivity = os.time()
 
-    Player.logger:info("Player created: " .. self.name .. " (" .. self.license .. ")")
+    PlayerClass.logger:info("Player created: " .. self.name .. " (" .. self.license .. ")")
 
     return self
 end
 
-function Player:loadFromDatabase(callback)
+function PlayerClass:loadFromDatabase(callback)
     if not self.license then
-        Player.logger:error("Cannot load player without license")
+        PlayerClass.logger:error("Cannot load player without license")
         if callback then callback(false) end
         return
     end
@@ -44,13 +45,11 @@ function Player:loadFromDatabase(callback)
         { self.license },
         function(result)
             if result then
-                self.userId = result.id
+                self.userId     = result.id
                 self.permission = result.permission_level or 0
-                self.group = result.group or "user"
+                self.group      = result.group or "user"
 
-                -- FIX: supprimé UPDATE last_login (ping inutile à chaque connexion)
-
-                Player.logger:info("User loaded: " .. self.name)
+                PlayerClass.logger:info("User loaded: " .. self.name)
                 self:loadCharacters(callback)
             else
                 Database.insert(
@@ -59,10 +58,10 @@ function Player:loadFromDatabase(callback)
                     function(userId)
                         if userId then
                             self.userId = userId
-                            Player.logger:info("New user created: " .. self.name)
+                            PlayerClass.logger:info("New user created: " .. self.name)
                             self:loadCharacters(callback)
                         else
-                            Player.logger:error("Failed to create new user")
+                            PlayerClass.logger:error("Failed to create new user")
                             if callback then callback(false) end
                         end
                     end
@@ -72,37 +71,37 @@ function Player:loadFromDatabase(callback)
     )
 end
 
-function Player:loadCharacters(callback)
+function PlayerClass:loadCharacters(callback)
     Database.fetch(
         "SELECT * FROM characters WHERE identifier = ?",
         { self.license },
         function(characters)
             self.characters = characters or {}
-            Player.logger:info(#self.characters .. " characters loaded for " .. self.name)
+            PlayerClass.logger:info(#self.characters .. " characters loaded for " .. self.name)
             if callback then callback(true) end
         end
     )
 end
 
-function Player:setActivity()
+function PlayerClass:setActivity()
     self.lastActivity = os.time()
 end
 
-function Player:getOnlineTime()
+function PlayerClass:getOnlineTime()
     return os.time() - self.lastActivity
 end
 
-function Player:kick(reason)
+function PlayerClass:kick(reason)
     reason = reason or "No reason provided"
-    Player.logger:warn("Kicking player " .. self.name .. ": " .. reason)
+    PlayerClass.logger:warn("Kicking player " .. self.name .. ": " .. reason)
     Auth.Webhooks.playerKicked(self.source, reason)
     DropPlayer(self.source, reason)
 end
 
-function Player:ban(reason, duration)
-    reason = reason or "No reason provided"
+function PlayerClass:ban(reason, duration)
+    reason   = reason   or "No reason provided"
     duration = duration or 0
-    Player.logger:warn("Banning player " .. self.name .. ": " .. reason)
+    PlayerClass.logger:warn("Banning player " .. self.name .. ": " .. reason)
 
     Database.execute(
         "UPDATE users SET banned = 1 WHERE id = ?",
@@ -114,20 +113,26 @@ function Player:ban(reason, duration)
     )
 end
 
-function Player:notify(message, type, duration)
+function PlayerClass:notify(message, type, duration)
     ServerUtils.notifyPlayer(self.source, message, type, duration)
 end
 
-function Player:isAdmin()
+function PlayerClass:isAdmin()
     return self.permission >= 2 or self.group == "admin"
 end
 
-function Player:isModerator()
+function PlayerClass:isModerator()
     return self.permission >= 1 or self.group == "moderator"
 end
 
-function Player:hasPermission(permission)
+function PlayerClass:hasPermission(permission)
     return PermissionSystem.hasPermission(self.source, permission)
 end
 
-return Player
+-- Alias rétrocompatible (certains modules utilisent encore "Player" directement)
+-- ATTENTION : ce alias est défini APRÈS le native Player(), donc il l'écrase.
+-- C'est intentionnel ici car on charge main.lua avant manager.lua.
+-- manager.lua utilise PlayerClass.new() pour éviter toute ambiguïté future.
+Player = PlayerClass
+
+return PlayerClass

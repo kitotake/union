@@ -1,6 +1,8 @@
 -- server/modules/player/manager.lua
--- FIX: playerDropped sauvegarde en colonne `position` JSON
--- FIX: suppression UPDATE last_login
+-- FIX: conflit de nom entre la classe Player (main.lua) et le native FiveM Player()
+--      → PlayerClass.new() utilisé à la place de Player.new()
+-- FIX: sauvegarde position JSON à la déconnexion
+-- AJOUT: création ped persistant hors-ligne à la déconnexion
 
 PlayerManager = {}
 PlayerManager.logger = Logger:child("PLAYER:MANAGER")
@@ -12,7 +14,9 @@ function PlayerManager.create(source)
         return PlayerManager.players[source]
     end
 
-    local player = Player.new(source)
+    -- FIX: PlayerClass est l'alias de la classe définie dans main.lua
+    -- (évite le conflit avec le native FiveM Player(source))
+    local player = PlayerClass.new(source)
     PlayerManager.players[source] = player
 
     return player
@@ -67,10 +71,10 @@ end
 
 function PlayerManager.getStats()
     local stats = {
-        total = PlayerManager.count(),
-        admins = 0,
+        total      = PlayerManager.count(),
+        admins     = 0,
         moderators = 0,
-        users = 0,
+        users      = 0,
     }
 
     for _, player in pairs(PlayerManager.players) do
@@ -86,7 +90,9 @@ function PlayerManager.getStats()
     return stats
 end
 
--- Initialize player on join
+-- ──────────────────────────────────────────────────────────────────────────
+-- Joueur rejoint
+-- ──────────────────────────────────────────────────────────────────────────
 RegisterNetEvent("union:player:joined", function()
     local source = source
 
@@ -103,7 +109,9 @@ RegisterNetEvent("union:player:joined", function()
     end)
 end)
 
--- Handle player disconnect
+-- ──────────────────────────────────────────────────────────────────────────
+-- Joueur quitte
+-- ──────────────────────────────────────────────────────────────────────────
 AddEventHandler("playerDropped", function(reason)
     local source = source
     local player = PlayerManager.get(source)
@@ -112,7 +120,6 @@ AddEventHandler("playerDropped", function(reason)
         Auth.Webhooks.playerLeft(source, reason)
         PlayerManager.logger:info("Player " .. player.name .. " disconnected: " .. reason)
 
-        -- Sauvegarde position + health + armor à la déconnexion
         if player.currentCharacter then
             local ped = GetPlayerPed(source)
 
@@ -126,7 +133,7 @@ AddEventHandler("playerDropped", function(reason)
                     x       = coords.x,
                     y       = coords.y,
                     z       = coords.z,
-                    heading = heading
+                    heading = heading,
                 })
 
                 Database.execute([[
@@ -136,7 +143,7 @@ AddEventHandler("playerDropped", function(reason)
                     WHERE unique_id = ?
                 ]], {
                     posJson, health, armor,
-                    player.currentCharacter.unique_id
+                    player.currentCharacter.unique_id,
                 }, function(result)
                     if result then
                         PlayerManager.logger:info("Character saved on disconnect for " .. player.name)
@@ -144,6 +151,27 @@ AddEventHandler("playerDropped", function(reason)
                         PlayerManager.logger:error("Failed to save character on disconnect for " .. player.name)
                     end
                 end)
+
+                -- Créer le ped persistant avec la position actuelle
+                if OfflinePed then
+                    local charSnapshot = {}
+                    for k, v in pairs(player.currentCharacter) do
+                        charSnapshot[k] = v
+                    end
+                    charSnapshot.position = {
+                        x       = coords.x,
+                        y       = coords.y,
+                        z       = coords.z,
+                        heading = heading,
+                    }
+
+                    OfflinePed.create({
+                        source           = source,
+                        name             = player.name,
+                        currentCharacter = charSnapshot,
+                        group            = player.group,
+                    })
+                end
             end
         end
 
