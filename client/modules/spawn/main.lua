@@ -1,13 +1,19 @@
--- client/modules/spawn/main.lua
--- FIX invisibilité : après SetPlayerModel() le ped change d'entité.
---   Il faut rappeler PlayerPedId() à chaque étape critique et ne jamais
---   réutiliser une variable ped périmée.
--- FIX GetPlayerFromId nil : on retarde union:spawn:confirm pour laisser
---   le serveur finaliser currentCharacter avant que kt_inventory l'appelle.
-
 Spawn = {}
 local logger = Logger:child("SPAWN")
 
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- SAFE PED (ANTI INVISIBLE GLOBAL)
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+local function SafePed()
+    local ped = PlayerPedId()
+    SetEntityVisible(ped, true, false)
+    SetEntityAlpha(ped, 255, false)
+    return ped
+end
+
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- INIT
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 function Spawn.initialize()
     logger:info("Initializing spawn system")
     TriggerServerEvent("union:spawn:requestInitial")
@@ -18,18 +24,18 @@ function Spawn.respawn(model)
     TriggerServerEvent("union:spawn:requestRespawn", model)
 end
 
--- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- EVENT : union:spawn:apply
--- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- APPLY SPAWN
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 RegisterNetEvent("union:spawn:apply", function(characterData)
     if not characterData then
-        logger:error("union:spawn:apply: characterData nil")
+        logger:error("characterData nil")
         return
     end
 
     local model = characterData.model
     if not model or model == "" then
-        logger:error("union:spawn:apply: model manquant")
+        logger:error("model manquant")
         return
     end
 
@@ -37,121 +43,111 @@ RegisterNetEvent("union:spawn:apply", function(characterData)
 
     Citizen.CreateThread(function()
 
-        -- ── 1. Charger le modèle ──────────────────────────────────────
+        -- ── LOAD MODEL ─────────────────────
         local modelHash = GetHashKey(model)
 
-        if not IsModelValid(modelHash) then
+        if not IsModelInCdimage(modelHash) or not IsModelValid(modelHash) then
             logger:error("Invalid model: " .. model)
             TriggerServerEvent("union:spawn:error", "MODEL_INVALID")
             return
         end
 
         RequestModel(modelHash)
-        local t = GetGameTimer()
+
+        local timeout = GetGameTimer() + 10000
         while not HasModelLoaded(modelHash) do
             Wait(50)
-            if GetGameTimer() - t > 10000 then
-                logger:error("Timeout chargement modèle: " .. model)
+            if GetGameTimer() > timeout then
+                logger:error("Timeout model: " .. model)
                 TriggerServerEvent("union:spawn:error", "MODEL_LOAD_FAILED")
                 return
             end
         end
 
-        -- ── 2. Appliquer le modèle ────────────────────────────────────
-        -- IMPORTANT : après SetPlayerModel le ped change d'handle.
-        -- On récupère le nouveau ped immédiatement après.
+        -- ── SET MODEL ──────────────────────
         SetPlayerModel(PlayerId(), modelHash)
         SetModelAsNoLongerNeeded(modelHash)
 
-        -- Attendre que le moteur crée le nouveau ped (1 frame suffit)
         Wait(0)
-        local ped = PlayerPedId()
+        local ped = SafePed()
 
-        -- ── 3. Rendre visible immédiatement ──────────────────────────
-        -- C'est ici qu'on était invisible : l'ancienne variable ped
-        -- pointait vers l'ancien ped. On appelle SetEntityVisible
-        -- sur le NOUVEAU ped tout de suite.
-        SetEntityVisible(ped, true, false)
-        SetEntityAlpha(ped, 255, false)
+        -- Freeze pour éviter glitch
+        FreezeEntityPosition(ped, true)
 
-        -- ── 4. Position et résurrection ───────────────────────────────
+        -- ── DATA ───────────────────────────
         local pos     = characterData.position or Config.spawn.defaultPosition
         local heading = characterData.heading  or Config.spawn.defaultHeading
         local health  = characterData.health   or Config.character.defaultHealth
         local armor   = characterData.armor    or 0
 
-        -- Charger les collisions à la position cible
+        -- ── COLLISION SAFE ─────────────────
         RequestCollisionAtCoord(pos.x, pos.y, pos.z)
-        local collTimeout = GetGameTimer() + 5000
-        while not HasCollisionLoadedAroundEntity(ped) and GetGameTimer() < collTimeout do
-            Wait(0)
+
+        for i = 1, 50 do
+            if HasCollisionLoadedAroundEntity(ped) then break end
+            Wait(100)
         end
 
-        -- Ressusciter et positionner
+        -- ── RESPAWN ────────────────────────
         NetworkResurrectLocalPlayer(pos.x, pos.y, pos.z, heading, true, true)
-        Wait(150)
 
-        -- Rafraîchir le ped après résurrection (peut changer à nouveau)
-        ped = PlayerPedId()
+        Wait(200)
+        ped = SafePed()
 
-        SetEntityHeading(ped, heading)
+        -- Apply stats
         SetEntityHealth(ped, health)
         SetPedArmour(ped, armor)
-        SetEntityVisible(ped, true, false)   -- re-confirmer la visibilité
-        SetEntityAlpha(ped, 255, false)
+        SetEntityHeading(ped, heading)
         ClearPedTasksImmediately(ped)
-        FreezeEntityPosition(ped, false)
 
-        -- ── 5. Supprimer le ped offline local ────────────────────────
+        -- ── DELETE OFFLINE PED ─────────────
         if OfflinePeds and characterData.unique_id then
             local offlinePed = OfflinePeds[characterData.unique_id]
             if offlinePed and DoesEntityExist(offlinePed) then
-                SetEntityAsMissionEntity(offlinePed, false, true)
                 DeleteEntity(offlinePed)
                 OfflinePeds[characterData.unique_id] = nil
             end
         end
 
-        -- ── 6. Apparence ─────────────────────────────────────────────
+        -- ── APPARENCE ──────────────────────
         if ApplyFullAppearance then
-            Wait(200)
-            -- Rafraîchir encore (ApplyFullAppearance peut spawner un nouveau ped)
-            ped = PlayerPedId()
+            Wait(300)
             ApplyFullAppearance(characterData)
+
+            -- refresh après skin (CRUCIAL)
+            Wait(150)
+            ped = SafePed()
         else
             logger:warn("ApplyFullAppearance non disponible")
         end
 
-        -- Dernière confirmation de visibilité après apparence
-        Wait(50)
-        ped = PlayerPedId()
+        -- ── FINAL FIX INVISIBLE ────────────
         SetEntityVisible(ped, true, false)
         SetEntityAlpha(ped, 255, false)
 
-        -- ── 7. Stocker le personnage courant ─────────────────────────
+        -- Unfreeze
+        FreezeEntityPosition(ped, false)
+
+        -- Save
         Client.currentCharacter = characterData
 
         logger:info("Character spawned successfully")
 
-        -- ── 8. Confirmer au serveur ───────────────────────────────────
-        -- FIX GetPlayerFromId nil : on attend 1 frame supplémentaire
-        -- pour que le serveur ait bien fini Character.select() et
-        -- mis à jour player.currentCharacter avant que kt_inventory
-        -- tente de le lire via union:player:spawned.
-        Wait(100)
-        TriggerServerEvent("union:spawn:confirm")
+        -- Confirm serveur (propre)
+        TriggerServerEvent("union:spawn:confirm", characterData.unique_id)
 
-        -- ── 9. Animation de réveil ────────────────────────────────────
+        -- Wake up anim
         Wait(300)
         if OfflinePeds and OfflinePeds.playWakeUpAnim then
             OfflinePeds.playWakeUpAnim(PlayerPedId())
         end
+
     end)
 end)
 
--- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- EVENT : union:spawn:error
--- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- ERROR
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 RegisterNetEvent("union:spawn:error", function(errorType)
     logger:error("Spawn error: " .. tostring(errorType))
     Spawn.respawn(Config.spawn.defaultModel)

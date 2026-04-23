@@ -42,13 +42,17 @@ client_scripts {
     'client/modules/commands/job.lua',
     'client/modules/commands/bank.lua',
     'client/modules/commands/vehicle.lua',
+
+    
+    'client/modules/bridge/exports.lua',
+
 }
 
 server_scripts {
     '@oxmysql/lib/MySQL.lua',
 
     'server/components/logger.lua',
-    'server/components/detabase.lua',
+    'server/components/database.lua',
     'server/components/utils.lua',
 
     'server/main.lua',
