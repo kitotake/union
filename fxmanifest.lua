@@ -31,9 +31,11 @@ client_scripts {
     'client/modules/character/create.lua',
     'client/modules/character/select.lua',
 
-    -- Peds persistants hors-ligne (doit être chargé avant spawn/main.lua si possible,
-    -- mais après logger.lua — l'ordre ici est correct)
+    -- Peds persistants hors-ligne
     'client/modules/player/offline_ped.lua',
+
+    -- FIX #16 : vehicle/main.lua doit être chargé avant les commandes
+    'client/modules/vehicle/main.lua',
 
     'client/modules/commands/character.lua',
     'client/modules/commands/admin.lua',
@@ -42,10 +44,9 @@ client_scripts {
     'client/modules/commands/job.lua',
     'client/modules/commands/bank.lua',
     'client/modules/commands/vehicle.lua',
+    -- FIX #5 : client/modules/vehicle/commands.lua SUPPRIMÉ (doublons de vehicle.lua)
 
-    
     'client/modules/bridge/exports.lua',
-
 }
 
 server_scripts {
@@ -68,7 +69,7 @@ server_scripts {
     'server/modules/player/main.lua',
     'server/modules/player/manager.lua',
     'server/modules/player/persistence.lua',
-    'server/modules/player/offline_ped.lua',   -- ← NOUVEAU
+    'server/modules/player/offline_ped.lua',
 
     -- Character Module
     'server/modules/character/main.lua',
@@ -86,12 +87,13 @@ server_scripts {
     'server/modules/inventory/main.lua',
 
     -- Vehicle Module
-    /*'server/modules/vehicle/main.lua',
-    'server/modules/vehicle/database.lua',*/
+    -- FIX #9 : décommenté pour que les commandes client fonctionnent
+    'server/modules/vehicle/main.lua',
+    'server/modules/vehicle/database.lua',
 
     -- Job Module
     'server/modules/job/main.lua',
-    /*'server/modules/job/database.lua',*/
+    'server/modules/job/database.lua',
 
     -- Bank Module
     'server/modules/bank/main.lua',
@@ -108,10 +110,14 @@ server_scripts {
     'server/modules/commands/debug.lua',
     'server/modules/commands/taginfo.lua',
     'server/modules/commands/job.lua',
+    'server/modules/commands/bank.lua',
 }
 
 dependencies {
-    'kt_lib',
+  --  'kt_lib',
+    'oxmysql',
+    -- FIX #6 : kt_inventory listé comme dépendance
+  --  'kt_inventory',
 }
 
 server_exports {

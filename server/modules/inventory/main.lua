@@ -1,16 +1,29 @@
 -- server/modules/inventory/main.lua
--- Intégration kt_inventory dans Union Framework
--- FIX: suppression du double-chargement (le bridge union/server.lua gère déjà setPlayerInventory)
---      L'event union:player:spawned est retiré ici — il est géré dans modules/bridge/union/server.lua
+-- FIX #6 : vérification que kt_inventory est démarré avant tout appel export.
+--           Sans ce guard, si kt_inventory est absent/arrêté le framework crash
+--           et empêche tout le monde de jouer.
 
 UnionInventory = {}
 UnionInventory.logger = Logger:child("INVENTORY")
-UnionInventory._loadedPlayers = {} -- Guard contre les doubles chargements
+UnionInventory._loadedPlayers = {}
 
--- ──────────────────────────────────────────────────────────────────────────
--- Chargement de l'inventaire d'un personnage depuis kt_inventory
--- Appelé depuis le bridge union/server.lua via union:player:spawned
--- ──────────────────────────────────────────────────────────────────────────
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- GUARD : kt_inventory disponible ?
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+local function isInventoryAvailable()
+    local state = GetResourceState('kt_inventory')
+    if state ~= 'started' then
+        UnionInventory.logger:warn(
+            ("kt_inventory non disponible (état: %s) — opération inventaire ignorée"):format(state)
+        )
+        return false
+    end
+    return true
+end
+
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- CHARGEMENT INVENTAIRE
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 function UnionInventory.loadForPlayer(player)
     if not player or not player.currentCharacter then
         UnionInventory.logger:error("loadForPlayer: joueur ou personnage invalide")
@@ -23,13 +36,16 @@ function UnionInventory.loadForPlayer(player)
         return
     end
 
-    -- Guard anti double-chargement
     if UnionInventory._loadedPlayers[player.source] == uniqueId then
         UnionInventory.logger:warn(
             ("loadForPlayer: inventaire déjà chargé pour %s (%s) — skip"):format(player.name, uniqueId)
         )
         return
     end
+
+    -- FIX #6 : guard avant l'export
+    if not isInventoryAvailable() then return end
+
     UnionInventory._loadedPlayers[player.source] = uniqueId
 
     local inventoryPlayer = {
@@ -58,38 +74,42 @@ function UnionInventory.loadForPlayer(player)
     )
 end
 
--- ──────────────────────────────────────────────────────────────────────────
--- Nettoyage du guard à la déconnexion
--- ──────────────────────────────────────────────────────────────────────────
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- NETTOYAGE À LA DÉCONNEXION
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 AddEventHandler("playerDropped", function()
     local src = source
     UnionInventory._loadedPlayers[src] = nil
 end)
 
--- ──────────────────────────────────────────────────────────────────────────
--- Sauvegarde explicite (avant changement de personnage)
--- ──────────────────────────────────────────────────────────────────────────
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- SAUVEGARDE EXPLICITE
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 function UnionInventory.save(source)
     UnionInventory.logger:debug("Sauvegarde inventaire déclenchée pour " .. source)
 end
 
--- ──────────────────────────────────────────────────────────────────────────
--- Helpers publics — wrappers sur les exports kt_inventory
--- ──────────────────────────────────────────────────────────────────────────
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- HELPERS PUBLICS — FIX #6 : guard sur chaque export
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 function UnionInventory.addItem(source, itemName, count, metadata)
+    if not isInventoryAvailable() then return false end
     return exports["kt_inventory"]:AddItem(source, itemName, count, metadata)
 end
 
 function UnionInventory.removeItem(source, itemName, count, metadata)
+    if not isInventoryAvailable() then return false end
     return exports["kt_inventory"]:RemoveItem(source, itemName, count, metadata)
 end
 
-function UnionInventory.getItemCount(source, itemName, count)
+function UnionInventory.getItemCount(source, itemName)
+    if not isInventoryAvailable() then return 0 end
     return exports["kt_inventory"]:GetItemCount(source, itemName)
 end
 
 function UnionInventory.canCarry(source, itemName, count)
+    if not isInventoryAvailable() then return false end
     return exports["kt_inventory"]:CanCarryItem(source, itemName, count)
 end
 
@@ -107,12 +127,15 @@ function UnionInventory.getMoney(source)
     return UnionInventory.getItemCount(source, "money")
 end
 
--- ──────────────────────────────────────────────────────────────────────────
--- NOTE : l'event union:player:spawned est intentionnellement ABSENT ici.
--- Le bridge (modules/bridge/union/server.lua dans kt_inventory) écoute
--- union:player:spawned et appelle server.setPlayerInventory directement.
--- Avoir les deux déclencherait un double chargement → erreur "active player".
--- ──────────────────────────────────────────────────────────────────────────
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- ÉCOUTE SPAWN POUR CHARGER L'INVENTAIRE
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+AddEventHandler("union:player:spawned", function(src, character)
+    local player = PlayerManager.get(src)
+    if player then
+        UnionInventory.loadForPlayer(player)
+    end
+end)
 
 -- Exports Union pour les autres resources
 exports("AddItem",        UnionInventory.addItem)

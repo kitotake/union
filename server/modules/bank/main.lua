@@ -1,4 +1,7 @@
 -- server/modules/bank/main.lua
+-- FIX #8 : remplacement de "local source = source" par "local src = source"
+--           dans tous les NetEvents pour éviter le shadowing de la globale FiveM.
+
 Bank = {}
 Bank.logger = Logger:child("BANK")
 
@@ -21,13 +24,12 @@ function Bank.deposit(uniqueId, amount, description, callback)
         if callback then callback(false) end
         return
     end
-    
+
     Database.execute([[
         UPDATE bank_accounts SET balance = balance + ?
         WHERE unique_id = ? AND type = 'personal'
     ]], {amount, uniqueId}, function(result)
         if result then
-            -- Log transaction
             Bank.logTransaction(uniqueId, amount, "deposit", description)
             Bank.logger:info("Deposit: " .. amount .. " for " .. uniqueId)
             if callback then callback(true) end
@@ -42,14 +44,13 @@ function Bank.withdraw(uniqueId, amount, description, callback)
         if callback then callback(false) end
         return
     end
-    
-    -- Check balance first
+
     Bank.getBalance(uniqueId, function(balance)
         if balance < amount then
             if callback then callback(false) end
             return
         end
-        
+
         Database.execute([[
             UPDATE bank_accounts SET balance = balance - ?
             WHERE unique_id = ? AND type = 'personal'
@@ -70,7 +71,7 @@ function Bank.transfer(fromId, toId, amount, description, callback)
         if callback then callback(false) end
         return
     end
-    
+
     Bank.withdraw(fromId, amount, "Transfer to " .. toId, function(success)
         if success then
             Bank.deposit(toId, amount, "Transfer from " .. fromId, function(depositSuccess)
@@ -93,57 +94,61 @@ function Bank.logTransaction(accountId, amount, txType, description)
     end)
 end
 
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- NET EVENTS — FIX #8 : src au lieu de local source = source
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
 RegisterNetEvent("union:bank:getBalance", function()
-    local source = source
-    local player = PlayerManager.get(source)
-    
+    local src    = source
+    local player = PlayerManager.get(src)
+
     if player and player.currentCharacter then
         Bank.getBalance(player.currentCharacter.unique_id, function(balance)
-            TriggerClientEvent("union:bank:balanceReceived", source, balance)
+            TriggerClientEvent("union:bank:balanceReceived", src, balance)
         end)
     end
 end)
 
 RegisterNetEvent("union:bank:deposit", function(amount)
-    local source = source
-    local player = PlayerManager.get(source)
+    local src    = source
+    local player = PlayerManager.get(src)
     if not player or not player.currentCharacter then return end
 
     Bank.deposit(player.currentCharacter.unique_id, amount, "Dépôt manuel", function(success)
         if success then
             Bank.getBalance(player.currentCharacter.unique_id, function(balance)
-                TriggerClientEvent("union:bank:depositResult", source, true, amount, balance)
+                TriggerClientEvent("union:bank:depositResult", src, true, amount, balance)
             end)
         else
-            TriggerClientEvent("union:bank:depositResult", source, false, amount, 0)
+            TriggerClientEvent("union:bank:depositResult", src, false, amount, 0)
         end
     end)
 end)
 
 RegisterNetEvent("union:bank:withdraw", function(amount)
-    local source = source
-    local player = PlayerManager.get(source)
+    local src    = source
+    local player = PlayerManager.get(src)
     if not player or not player.currentCharacter then return end
 
     Bank.withdraw(player.currentCharacter.unique_id, amount, "Retrait manuel", function(success)
         if success then
             Bank.getBalance(player.currentCharacter.unique_id, function(balance)
-                TriggerClientEvent("union:bank:withdrawResult", source, true, amount, balance)
+                TriggerClientEvent("union:bank:withdrawResult", src, true, amount, balance)
             end)
         else
-            TriggerClientEvent("union:bank:withdrawResult", source, false, amount, 0)
+            TriggerClientEvent("union:bank:withdrawResult", src, false, amount, 0)
         end
     end)
 end)
 
 RegisterNetEvent("union:bank:transfer", function(targetId, amount)
-    local source = source
-    local player = PlayerManager.get(source)
+    local src    = source
+    local player = PlayerManager.get(src)
     local target = PlayerManager.get(targetId)
 
     if not player or not player.currentCharacter then return end
     if not target or not target.currentCharacter then
-        TriggerClientEvent("union:bank:transferResult", source, false, amount)
+        TriggerClientEvent("union:bank:transferResult", src, false, amount)
         return
     end
 
@@ -153,7 +158,7 @@ RegisterNetEvent("union:bank:transfer", function(targetId, amount)
         amount,
         "Transfert vers " .. target.name,
         function(success)
-            TriggerClientEvent("union:bank:transferResult", source, success, amount)
+            TriggerClientEvent("union:bank:transferResult", src, success, amount)
             if success then
                 TriggerClientEvent("union:notify", targetId,
                     string.format("Vous avez reçu $%s de %s", amount, player.name), "success", 5000)
@@ -163,12 +168,12 @@ RegisterNetEvent("union:bank:transfer", function(targetId, amount)
 end)
 
 RegisterNetEvent("union:bank:transactions", function()
-    local source = source
-    local player = PlayerManager.get(source)
+    local src    = source
+    local player = PlayerManager.get(src)
     if not player or not player.currentCharacter then return end
 
     BankDB.getTransactions(player.currentCharacter.unique_id, 10, function(transactions)
-        TriggerClientEvent("union:bank:transactionsReceived", source, transactions or {})
+        TriggerClientEvent("union:bank:transactionsReceived", src, transactions or {})
     end)
 end)
 

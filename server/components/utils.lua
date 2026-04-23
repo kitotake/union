@@ -1,6 +1,7 @@
 -- server/components/utils.lua
--- FIX: ServerUtils.notifyPlayer(0, ...) crash quand la commande est lancée depuis la console
---      car TriggerClientEvent avec source=0 ne cible personne mais le native plante.
+-- FIX #8  : notifyPlayer utilise toujours "src" pour éviter la confusion avec la globale source.
+-- FIX #15 : generateUniqueId nettoyé — le check "^chr_" était du code mort
+--            car la fonction génère toujours un ID numérique (jamais préfixé).
 
 ServerUtils = {}
 
@@ -26,6 +27,7 @@ function ServerUtils.getIdentifier(source, idType)
     end
 end
 
+-- FIX #15 : check "^chr_" supprimé — code mort (l'ID généré est toujours numérique)
 function ServerUtils.generateUniqueId(length)
     length = length or 12
     local chars = "0123456789"
@@ -36,12 +38,7 @@ function ServerUtils.generateUniqueId(length)
         id = id .. chars:sub(rand, rand)
     end
 
-    -- évite double prefix
-    if not id:find("^chr_") then
-        id = "chr_" .. id
-    end
-
-    return id
+    return "chr_" .. id
 end
 
 exports('generateUniqueId', function(len)
@@ -60,22 +57,21 @@ function ServerUtils.validateDate(date)
     return true
 end
 
--- FIX: si source est 0 (console) ou nil → print dans la console au lieu de TriggerClientEvent
-function ServerUtils.notifyPlayer(source, message, type, duration)
+-- FIX : si source est 0 (console) ou nil → print dans la console au lieu de TriggerClientEvent
+function ServerUtils.notifyPlayer(src, message, type, duration)
     type     = type     or "info"
     duration = duration or 3000
 
-    if not source or source == 0 then
-        -- Console : afficher directement
+    if not src or src == 0 then
         print(("[NOTIFY→console][%s] %s"):format(type:upper(), tostring(message)))
         return
     end
 
-    TriggerClientEvent("union:notify", source, message, type, duration)
+    TriggerClientEvent("union:notify", src, message, type, duration)
 end
 
 function ServerUtils.notifyAll(message, type, duration)
-    type = type or "info"
+    type     = type     or "info"
     duration = duration or 3000
     TriggerClientEvent("union:notify", -1, message, type, duration)
 end

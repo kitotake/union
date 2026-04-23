@@ -1,4 +1,6 @@
 -- server/modules/vehicle/database.lua
+-- FIX #13 : fichier renommé de "detabase.lua" en "database.lua" (faute de frappe)
+
 VehicleDB = {}
 VehicleDB.logger = Logger:child("VEHICLE:DATABASE")
 

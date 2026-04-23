@@ -1,8 +1,12 @@
+-- client/modules/spawn/main.lua
+-- FIX #14 : OfflinePeds[unique_id] corrigé en OfflinePeds.list[unique_id]
+--            car la table imbriquée s'appelle OfflinePeds.list (définie dans offline_ped.lua).
+
 Spawn = {}
 local logger = Logger:child("SPAWN")
 
 -- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- SAFE PED (ANTI INVISIBLE GLOBAL)
+-- SAFE PED (anti-invisible global)
 -- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 local function SafePed()
     local ped = PlayerPedId()
@@ -71,7 +75,6 @@ RegisterNetEvent("union:spawn:apply", function(characterData)
         Wait(0)
         local ped = SafePed()
 
-        -- Freeze pour éviter glitch
         FreezeEntityPosition(ped, true)
 
         -- ── DATA ───────────────────────────
@@ -94,18 +97,18 @@ RegisterNetEvent("union:spawn:apply", function(characterData)
         Wait(200)
         ped = SafePed()
 
-        -- Apply stats
         SetEntityHealth(ped, health)
         SetPedArmour(ped, armor)
         SetEntityHeading(ped, heading)
         ClearPedTasksImmediately(ped)
 
         -- ── DELETE OFFLINE PED ─────────────
-        if OfflinePeds and characterData.unique_id then
-            local offlinePed = OfflinePeds[characterData.unique_id]
+        -- FIX #14 : accès via OfflinePeds.list (et non OfflinePeds directement)
+        if OfflinePeds and OfflinePeds.list and characterData.unique_id then
+            local offlinePed = OfflinePeds.list[characterData.unique_id]
             if offlinePed and DoesEntityExist(offlinePed) then
                 DeleteEntity(offlinePed)
-                OfflinePeds[characterData.unique_id] = nil
+                OfflinePeds.list[characterData.unique_id] = nil
             end
         end
 
@@ -114,7 +117,6 @@ RegisterNetEvent("union:spawn:apply", function(characterData)
             Wait(300)
             ApplyFullAppearance(characterData)
 
-            -- refresh après skin (CRUCIAL)
             Wait(150)
             ped = SafePed()
         else
@@ -125,15 +127,13 @@ RegisterNetEvent("union:spawn:apply", function(characterData)
         SetEntityVisible(ped, true, false)
         SetEntityAlpha(ped, 255, false)
 
-        -- Unfreeze
         FreezeEntityPosition(ped, false)
 
-        -- Save
         Client.currentCharacter = characterData
 
         logger:info("Character spawned successfully")
 
-        -- Confirm serveur (propre)
+        -- Confirmer au serveur
         TriggerServerEvent("union:spawn:confirm", characterData.unique_id)
 
         -- Wake up anim
@@ -141,7 +141,6 @@ RegisterNetEvent("union:spawn:apply", function(characterData)
         if OfflinePeds and OfflinePeds.playWakeUpAnim then
             OfflinePeds.playWakeUpAnim(PlayerPedId())
         end
-
     end)
 end)
 

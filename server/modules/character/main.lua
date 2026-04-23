@@ -1,28 +1,9 @@
--- server/modules/character/main.lua (extrait — partie select uniquement)
--- AJOUT: suppression du ped offline quand un personnage est sélectionné
-
--- Patch à appliquer dans la fonction Character.select existante,
--- juste avant TriggerClientEvent("union:spawn:apply", ...)
-
--- Dans la callback de Database.fetchOne pour le skin :
---
---   function(appearance)
---       applySkinData(charData, appearance)
---
---       -- ✅ AJOUT: supprimer le ped offline de ce personnage sur tous les clients
---       if OfflinePed then
---           OfflinePed.remove(selected.unique_id)
---       end
---
---       TriggerClientEvent("union:spawn:apply", player.source, charData)
---       if callback then callback(true, selected) end
---   end
---
--- Ce fichier est un PATCH GUIDE — appliquer la modification dans
--- server/modules/character/main.lua à la ligne correspondante.
---
--- ─────────────────────────────────────────────────────────────────────────
--- Voici le fichier complet avec le patch intégré :
+-- server/modules/character/main.lua
+-- FIX #10 : OfflinePed.remove() retiré de Character.select.
+--            La suppression du ped offline se fait UNIQUEMENT dans
+--            union:spawn:confirm (spawn/handler.lua), après confirmation
+--            réelle du client. L'appel ici était prématuré : si le spawn
+--            échouait côté client, le ped offline était déjà supprimé.
 
 Character        = {}
 Character.logger = Logger:child("CHARACTER")
@@ -177,10 +158,9 @@ function Character.select(player, characterId, callback)
         function(appearance)
             applySkinData(charData, appearance)
 
-            -- ✅ Supprimer le ped offline persistant de ce personnage sur tous les clients
-            if OfflinePed then
-                OfflinePed.remove(selected.unique_id)
-            end
+            -- FIX #10 : OfflinePed.remove() RETIRÉ ICI.
+            -- La suppression est gérée dans spawn/handler.lua → union:spawn:confirm
+            -- après confirmation réelle du spawn côté client.
 
             TriggerClientEvent("union:spawn:apply", player.source, charData)
             if callback then callback(true, selected) end

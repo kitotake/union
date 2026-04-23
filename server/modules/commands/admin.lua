@@ -1,13 +1,8 @@
 -- server/modules/commands/admin.lua
+-- FIX #12 : suppression de la commande vide RegisterCommand("", ...) à la fin du fichier.
 
------------------------------------------
--- CONFIG
------------------------------------------
 local ADMIN_ACE = "admin"
 
------------------------------------------
--- UTILS
------------------------------------------
 local function hasPerm(src)
     return src == 0 or IsPlayerAceAllowed(src, ADMIN_ACE)
 end
@@ -45,7 +40,6 @@ RegisterCommand("heal", function(source, args)
 
     local t = tonumber(target) or src
     TriggerClientEvent("admin:heal:client", t)
-
     notify(src, ("Heal sur %s"):format(t))
 end)
 
@@ -68,7 +62,6 @@ RegisterCommand("revive", function(source, args)
 
     local t = tonumber(target) or src
     TriggerClientEvent("admin:revive:client", t)
-
     notify(src, ("Revive sur %s"):format(t))
 end)
 
@@ -77,13 +70,10 @@ end)
 -----------------------------------------
 RegisterCommand("revivezone", function(source, args)
     local src = source
-
     if not hasPerm(src) then return end
 
     local radius = tonumber(args[1]) or 10.0
-
     TriggerClientEvent("admin:revivezone:client", src, radius)
-
     notify(src, ("Revive zone activé (rayon: %.1f)"):format(radius))
 end)
 
@@ -98,7 +88,6 @@ RegisterCommand("bring", function(source, args)
     if not target then return end
 
     TriggerClientEvent("admin:bring:client", target, src)
-
     notify(src, ("Bring joueur %s"):format(target))
 end)
 
@@ -113,7 +102,6 @@ RegisterCommand("goto", function(source, args)
     if not target then return end
 
     TriggerClientEvent("admin:goto:client", src, target)
-
     notify(src, ("Goto joueur %s"):format(target))
 end)
 
@@ -128,7 +116,6 @@ RegisterCommand("spectate", function(source, args)
     if not target then return end
 
     TriggerClientEvent("admin:spectate:client", src, target)
-
     notify(src, ("Spectate joueur %s"):format(target))
 end)
 
@@ -156,12 +143,8 @@ end)
 -----------------------------------------
 RegisterCommand("tpa", function(source)
     local src = source
-
     if not hasPerm(src) then return end
 
     TriggerClientEvent("admin:tpa:client", src)
 end)
 
-RegisterCommand("", function(source)
-
-end)

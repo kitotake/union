@@ -1,4 +1,6 @@
 -- server/modules/job/database.lua
+-- FIX #13 : fichier renommé de "datebase.lua" en "database.lua" (faute de frappe)
+
 JobDB = {}
 JobDB.logger = Logger:child("JOB:DATABASE")
 
