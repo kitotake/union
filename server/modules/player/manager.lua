@@ -17,8 +17,15 @@ function PlayerManager.create(source)
     -- FIX: PlayerClass est l'alias de la classe définie dans main.lua
     -- (évite le conflit avec le native FiveM Player(source))
     local player = PlayerClass.new(source)
+    print("PlayerManager: Created player with name " .. player.name .. " and license " .. player.license)
     PlayerManager.players[source] = player
-
+    print("PlayerManager: Total players = " .. PlayerManager.count())
+    print("PlayerManager: Current players = " .. json.encode(PlayerManager.getAll()))
+    print("PlayerManager: Player object = " .. json.encode(player))
+    print("PlayerManager: Player source = " .. player.source)
+    print("PlayerManager: Player identifiers = " .. json.encode(player.identifiers))
+    print("PlayerManager: Player license = " .. player.license)
+    print("PlayerClass: == " .. tostring(PlayerClass))
     return player
 end
 

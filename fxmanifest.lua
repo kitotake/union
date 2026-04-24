@@ -31,6 +31,8 @@ client_scripts {
     'client/modules/character/create.lua',
     'client/modules/character/select.lua',
 
+    'client/modules/character/characterManager.lua', -- FIX #4 : characterManager.lua ajouté (gestion des événements de sélection/création)
+    
     -- Peds persistants hors-ligne
     'client/modules/player/offline_ped.lua',
 
@@ -77,6 +79,7 @@ server_scripts {
     'server/modules/character/select.lua',
     'server/modules/character/appearance.lua',
     'server/modules/character/database.lua',
+    'server/modules/character/characterManager.lua', -- FIX #4 : characterManager.lua ajouté (gestion des événements de sélection/création)
 
     -- Spawn Module
     'server/modules/spawn/main.lua',

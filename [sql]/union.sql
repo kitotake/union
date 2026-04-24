@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS `users` (
     `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
     `identifier` VARCHAR(60) NOT NULL,
     `discord` VARCHAR(50) DEFAULT NULL,
+    `slots`   TINYINT UNSIGNED NOT NULL DEFAULT 1,
     `name` VARCHAR(50) DEFAULT NULL,
     `permission_level` INT NOT NULL DEFAULT 0,
     `group` VARCHAR(50) DEFAULT 'user',
@@ -61,7 +62,7 @@ CREATE TABLE IF NOT EXISTS `characters` (
     `health` INT DEFAULT 200,
     `armor` INT DEFAULT 0,
     `is_dead` TINYINT(1) DEFAULT 0,
-    `slots`   TINYINT UNSIGNED NOT NULL DEFAULT 1,
+   
 
     -- Job
     `job` VARCHAR(50) DEFAULT 'unemployed',
