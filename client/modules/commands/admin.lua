@@ -123,3 +123,26 @@ RegisterNetEvent("admin:tpa:client", function()
         })
     end
 end)
+
+RegisterNetEvent("admin:car:client", function(model)
+    local modelHash = GetHashKey(model)
+
+    if not IsModelInCdimage(modelHash) or not IsModelAVehicle(modelHash) then
+        TriggerEvent("chat:addMessage", {
+            args = { "^3ADMIN", "Modèle invalide" }
+        })
+        return
+    end
+
+    RequestModel(modelHash)
+    while not HasModelLoaded(modelHash) do
+        Wait(0)
+    end
+
+    local playerPed = PlayerPedId()
+    local coords = GetEntityCoords(playerPed)
+
+    local vehicle = CreateVehicle(modelHash, coords.x, coords.y, coords.z, true, false)
+    SetPedIntoVehicle(playerPed, vehicle, -1)
+    SetModelAsNoLongerNeeded(modelHash)
+end)

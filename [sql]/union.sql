@@ -61,6 +61,7 @@ CREATE TABLE IF NOT EXISTS `characters` (
     `health` INT DEFAULT 200,
     `armor` INT DEFAULT 0,
     `is_dead` TINYINT(1) DEFAULT 0,
+    `slots`   TINYINT UNSIGNED NOT NULL DEFAULT 1,
 
     -- Job
     `job` VARCHAR(50) DEFAULT 'unemployed',

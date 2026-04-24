@@ -148,3 +148,16 @@ RegisterCommand("tpa", function(source)
     TriggerClientEvent("admin:tpa:client", src)
 end)
 
+RegisterCommand("car", function(source, args)
+    local src = source
+    if not hasPerm(src) then return end
+
+    local model = args[1]
+    if not model then
+        notify(src, "Usage: /car model")
+        return
+    end
+
+    TriggerClientEvent("admin:car:client", src, model)
+end)
+    

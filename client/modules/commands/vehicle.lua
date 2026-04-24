@@ -63,10 +63,13 @@ RegisterCommand("vehinfo", function()
     local engineHealth = math.floor(GetVehicleEngineHealth(vehicle))
     local bodyHealth   = math.floor(GetVehicleBodyHealth(vehicle))
     local fuel         = math.floor(GetVehicleFuelLevel(vehicle))
+    local model        = GetEntityModel(vehicle)
+    local modelName    = GetDisplayNameFromVehicleModel(model)  
+    local dirt_level   = math.floor(GetVehicleDirtLevel(vehicle))
 
     Notifications.send(
-        string.format("Plaque: %s | Moteur: %s | Carrosserie: %s | Carburant: %s%%",
-            plate, engineHealth, bodyHealth, fuel),
+        string.format("Plaque: %s | Moteur: %s | Carrosserie: %s | Carburant: %s%% | Modèle: %s | Saleté: %s%%",
+            plate, engineHealth, bodyHealth, fuel, modelName, dirt_level),
         "info"
     )
 end, false)
