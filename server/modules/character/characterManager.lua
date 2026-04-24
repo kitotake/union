@@ -47,84 +47,83 @@ local function fetchPlayerCharacters(license, callback)
         return
     end
 
-    -- On joint character_appearances pour récupérer skin_data en une seule requête
-    exports.oxmysql:fetch([[
-        SELECT
-            c.id,
-            c.unique_id,
-            c.firstname,
-            c.lastname,
-            c.dateofbirth,
-            c.gender,
-            c.model,
-            c.position,
-            c.health,
-            c.armor,
-            c.job,
-            c.job_grade,
-            c.slots,
-            ca.skin_data
-        FROM characters c
-        LEFT JOIN character_appearances ca ON ca.unique_id = c.unique_id
-        WHERE c.identifier = ?
-        ORDER BY c.last_played DESC
-    ]], { license }, function(result)
-        if not result or #result == 0 then
-            if callback then callback({ slots = MAX_SLOTS_DEFAULT, characters = {} }) end
-            return
-        end
+    -- Récupère slots depuis users
+    Database.scalar(
+        "SELECT slots FROM users WHERE identifier = ?",
+        { license },
+        function(userSlots)
+            local slots = userSlots or MAX_SLOTS_DEFAULT
 
-        -- slots est stocké par personnage (tous partagent la même valeur pour ce joueur)
-        local slots = result[1].slots or MAX_SLOTS_DEFAULT
-        local characters = {}
-
-        for _, row in ipairs(result) do
-            -- Décode la position JSON
-            local px, py, pz, heading = decodePosition(row.position)
-            px, py, pz, heading = sanitizePosition(px, py, pz, heading)
-
-            -- Détermine le modèle GTA V correct
-            local model = row.model
-            if not model or model == "" then
-                model = (row.gender == "f") and Config.spawn.femaleModel or Config.spawn.defaultModel
-            end
-
-            -- Décode le skin si présent
-            local skinData = nil
-            if row.skin_data then
-                local ok, decoded = pcall(json.decode, row.skin_data)
-                if ok and decoded then
-                    skinData = decoded
+            exports.oxmysql:fetch([[
+                SELECT
+                    c.id,
+                    c.unique_id,
+                    c.firstname,
+                    c.lastname,
+                    c.dateofbirth,
+                    c.gender,
+                    c.model,
+                    c.position,
+                    c.health,
+                    c.armor,
+                    c.job,
+                    c.job_grade,
+                    ca.skin_data
+                FROM characters c
+                LEFT JOIN character_appearances ca ON ca.unique_id = c.unique_id
+                WHERE c.identifier = ?
+                ORDER BY c.last_played DESC
+            ]], { license }, function(result)
+                if not result or #result == 0 then
+                    if callback then callback({ slots = slots, characters = {} }) end
+                    return
                 end
-            end
 
-            table.insert(characters, {
-                id          = row.id,
-                unique_id   = row.unique_id,
-                firstname   = row.firstname,
-                lastname    = row.lastname,
-                dateofbirth = row.dateofbirth,
-                gender      = row.gender,
-                model       = model,
-                position    = { x = px, y = py, z = pz },
-                heading     = heading,
-                health      = row.health  or Config.character.defaultHealth,
-                armor       = row.armor   or 0,
-                job         = row.job     or "unemployed",
-                job_grade   = row.job_grade or 0,
-                -- Skin aplati dans le charData pour ApplyFullAppearance
-                hair         = skinData and skinData.hair         or nil,
-                headBlend    = skinData and skinData.headBlend    or nil,
-                faceFeatures = skinData and skinData.faceFeatures or nil,
-                headOverlays = skinData and skinData.headOverlays or nil,
-                components   = skinData and skinData.components   or nil,
-                props        = skinData and skinData.props        or nil,
-                tattoos      = skinData and skinData.tattoos      or nil,
-            })
+                local characters = {}
+
+                for _, row in ipairs(result) do
+                    local px, py, pz, heading = decodePosition(row.position)
+                    px, py, pz, heading = sanitizePosition(px, py, pz, heading)
+
+                    local model = row.model
+                    if not model or model == "" then
+                        model = (row.gender == "f") and Config.spawn.femaleModel or Config.spawn.defaultModel
+                    end
+
+                    local skinData = nil
+                    if row.skin_data then
+                        local ok, decoded = pcall(json.decode, row.skin_data)
+                        if ok and decoded then skinData = decoded end
+                    end
+
+                    table.insert(characters, {
+                        id          = row.id,
+                        unique_id   = row.unique_id,
+                        firstname   = row.firstname,
+                        lastname    = row.lastname,
+                        dateofbirth = row.dateofbirth,
+                        gender      = row.gender,
+                        model       = model,
+                        position    = { x = px, y = py, z = pz },
+                        heading     = heading,
+                        health      = row.health  or Config.character.defaultHealth,
+                        armor       = row.armor   or 0,
+                        job         = row.job     or "unemployed",
+                        job_grade   = row.job_grade or 0,
+                        hair         = skinData and skinData.hair         or nil,
+                        headBlend    = skinData and skinData.headBlend    or nil,
+                        faceFeatures = skinData and skinData.faceFeatures or nil,
+                        headOverlays = skinData and skinData.headOverlays or nil,
+                        components   = skinData and skinData.components   or nil,
+                        props        = skinData and skinData.props        or nil,
+                        tattoos      = skinData and skinData.tattoos      or nil,
+                    })
+                end
+
+                if callback then callback({ slots = slots, characters = characters }) end
+            end)
         end
-
-        if callback then callback({ slots = slots, characters = characters }) end
-    end)
+    )
 end
 
 -- ────────────────────────────────────────────────────────────────────────────

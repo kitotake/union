@@ -10,7 +10,6 @@ CREATE TABLE IF NOT EXISTS `users` (
     `discord` VARCHAR(50) DEFAULT NULL,
     `slots`   TINYINT UNSIGNED NOT NULL DEFAULT 1,
     `name` VARCHAR(50) DEFAULT NULL,
-    `permission_level` INT NOT NULL DEFAULT 0,
     `group` VARCHAR(50) DEFAULT 'user',
     `banned` TINYINT(1) DEFAULT 0,
     `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,

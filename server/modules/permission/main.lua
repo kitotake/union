@@ -27,22 +27,18 @@ PermissionSystem.groups = {
 function PermissionSystem.hasPermission(source, permission)
     local player = PlayerManager.get(source)
     if not player then return false end
-    
-    -- Check if player is a founder
-    if player.permission >= 3 then
-        return true
-    end
-    
-    -- Get player's group permissions
+
+    -- Founder bypass total
+    if player.group == "founder" then return true end
+
     local groupPerms = PermissionSystem.groups[player.group] or {}
-    
-    -- Check if permission exists in group
+
     for _, perm in ipairs(groupPerms) do
         if perm == permission or perm == "admin.all" then
             return true
         end
     end
-    
+
     return false
 end
 

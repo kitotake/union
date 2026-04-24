@@ -21,8 +21,8 @@ function PlayerClass.new(source)
     self.userId           = nil
     self.characters       = {}
     self.currentCharacter = nil
-    self.permission       = 0
     self.group            = "user"
+    self.slots            = 1
 
     self.isLoading    = true
     self.isSpawned    = false
@@ -45,9 +45,9 @@ function PlayerClass:loadFromDatabase(callback)
         { self.license },
         function(result)
             if result then
-                self.userId     = result.id
-                self.permission = result.permission_level or 0
-                self.group      = result.group or "user"
+                self.userId = result.id
+                self.group  = result.group or "user"
+                self.slots  = result.slots or 1
 
                 PlayerClass.logger:info("User loaded: " .. self.name)
                 self:loadCharacters(callback)
@@ -58,6 +58,7 @@ function PlayerClass:loadFromDatabase(callback)
                     function(userId)
                         if userId then
                             self.userId = userId
+                            self.slots  = 1
                             PlayerClass.logger:info("New user created: " .. self.name)
                             self:loadCharacters(callback)
                         else
@@ -113,16 +114,12 @@ function PlayerClass:ban(reason, duration)
     )
 end
 
-function PlayerClass:notify(message, type, duration)
-    ServerUtils.notifyPlayer(self.source, message, type, duration)
-end
-
 function PlayerClass:isAdmin()
-    return self.permission >= 2 or self.group == "admin"
+    return self.group == "admin" or self.group == "founder"
 end
 
 function PlayerClass:isModerator()
-    return self.permission >= 1 or self.group == "moderator"
+    return self.group == "moderator" or self:isAdmin()
 end
 
 function PlayerClass:hasPermission(permission)

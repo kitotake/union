@@ -1,8 +1,4 @@
 -- server/modules/commands/debug.lua
--- FIX: toutes les commandes dbg: supportent maintenant source=0 (console)
---      → la vérification de permission était : PlayerManager.get(0) → nil → refus
---      → maintenant la console bypass la vérification
-
 if not Config.debug then return end
 
 local function isConsole(src)
@@ -42,11 +38,12 @@ RegisterCommand("dbg:player", function(source, args)
     print("  license   : " .. tostring(target.license))
     print("  discord   : " .. tostring(target.discord))
     print("  group     : " .. tostring(target.group))
-    print("  permission: " .. tostring(target.permission))
+    print("  slots     : " .. tostring(target.slots))
     print("  isSpawned : " .. tostring(target.isSpawned))
 
     if target.currentCharacter then
         local c = target.currentCharacter
+        local pos = c.position or {}
         print("^5  ── CHARACTER ──^7")
         print("    id        : " .. tostring(c.id))
         print("    unique_id : " .. tostring(c.unique_id))
@@ -56,7 +53,8 @@ RegisterCommand("dbg:player", function(source, args)
         print("    job       : " .. tostring(c.job) .. " (" .. tostring(c.job_grade) .. ")")
         print("    health    : " .. tostring(c.health))
         print("    armor     : " .. tostring(c.armor))
-        print("    pos       : " .. tostring(c.position_x) .. ", " .. tostring(c.position_y) .. ", " .. tostring(c.position_z))
+        print("    pos       : " .. tostring(pos.x or 0) .. ", " .. tostring(pos.y or 0) .. ", " .. tostring(pos.z or 0))
+        print("    heading   : " .. tostring(c.heading or 0))
     else
         print("^3  (aucun personnage actif)^7")
     end
@@ -115,6 +113,12 @@ RegisterCommand("dbg:db", function(source, args)
                 return
             end
 
+            local pos = {}
+            if result.position then
+                local ok, p = pcall(json.decode, tostring(result.position))
+                if ok and p then pos = p end
+            end
+
             print("^5[DEBUG] ══ DB CHARACTER ══^7")
             print("  id        : " .. tostring(result.id))
             print("  unique_id : " .. tostring(result.unique_id))
@@ -122,6 +126,7 @@ RegisterCommand("dbg:db", function(source, args)
             print("  gender    : " .. tostring(result.gender))
             print("  model     : " .. tostring(result.model))
             print("  job       : " .. tostring(result.job))
+            print("  pos       : " .. tostring(pos.x or 0) .. ", " .. tostring(pos.y or 0) .. ", " .. tostring(pos.z or 0))
             print("  has_skin  : " .. (result.skin_data and "oui" or "non"))
             print("  created   : " .. tostring(result.created_at))
 
@@ -139,7 +144,6 @@ RegisterCommand("dbg:pos", function(source)
         return
     end
 
-    -- Console n'a pas de personnage, lui dire de préciser un joueur
     if isConsole(src) then
         print("^3[DEBUG] Console: utilisez dbg:player <id> pour voir la position d'un joueur^7")
         return
@@ -151,13 +155,14 @@ RegisterCommand("dbg:pos", function(source)
         return
     end
 
-    local c = player.currentCharacter
+    local c   = player.currentCharacter
+    local pos = c.position or {}
     local msg = string.format(
         "Pos: %.2f / %.2f / %.2f | Heading: %.1f",
-        c.position_x or 0,
-        c.position_y or 0,
-        c.position_z or 0,
-        c.heading    or 0
+        pos.x    or 0,
+        pos.y    or 0,
+        pos.z    or 0,
+        c.heading or 0
     )
 
     print("^5[DEBUG] " .. player.name .. " — " .. msg .. "^7")
