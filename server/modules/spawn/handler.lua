@@ -1,18 +1,16 @@
 -- server/modules/spawn/handler.lua
--- FIX #1  : ce fichier est l'unique endroit où les NetEvents spawn sont enregistrés.
---            Les doublons de spawn/main.lua ont été supprimés.
--- FIX #2  : le handler playerDropped qui créait le ped offline est SUPPRIMÉ ici.
---            La création du ped est faite UNE SEULE FOIS dans player/manager.lua.
--- FIX #3  : union:player:spawned est maintenant un AddEventHandler (local serveur)
---            et non un RegisterNetEvent (client → serveur).
--- FIX #4  : la suppression du ped offline est faite directement dans union:spawn:confirm
---            pour garantir que ça arrive APRÈS confirmation client du spawn.
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- RÈGLES DE SPAWN :
+--   0 personnage  → ouvre la création (kt_character)
+--   1 personnage  → spawn automatique (quel que soit le nb de slots)
+--   2+ personnages → ouvre l'interface de sélection NUI
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 SpawnHandler        = {}
 SpawnHandler.logger = Logger:child("SPAWN:HANDLER")
 
 -- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- INITIAL SPAWN
+-- INITIAL SPAWN — Point d'entrée principal
 -- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 RegisterNetEvent("union:spawn:requestInitial", function()
     local src    = source
@@ -23,24 +21,80 @@ RegisterNetEvent("union:spawn:requestInitial", function()
         return
     end
 
-    -- Aucun personnage → redirige vers création
-    if not player.characters or #player.characters == 0 then
+    local chars = player.characters or {}
+
+    -- ── Cas 0 : aucun personnage → création ──────────────────────────────
+    if #chars == 0 then
+        SpawnHandler.logger:info(("Joueur %s : 0 personnage → création"):format(player.name))
+        -- Ouvre le creator kt_character côté client
         TriggerClientEvent("union:spawn:noCharacters", src)
+        TriggerClientEvent("kt_character:openCreator", src)
         return
     end
 
-    -- A déjà un personnage sélectionné (respawn / retour de menu)
-    if player.currentCharacter then
-        TriggerClientEvent("union:spawn:apply", src, player.currentCharacter)
+    -- ── Cas 1 : un seul personnage → spawn automatique ───────────────────
+    if #chars == 1 then
+        SpawnHandler.logger:info(("Joueur %s : 1 personnage → spawn automatique"):format(player.name))
+        -- On passe par Character.select pour charger le skin et déclencher union:spawn:apply
+        Character.select(player, chars[1].id, function(success, character)
+            if not success then
+                SpawnHandler.logger:error("Auto-select échoué pour " .. player.name)
+                -- Fallback : spawn direct avec les données brutes
+                TriggerClientEvent("union:spawn:apply", src, SpawnHandler._buildCharData(chars[1]))
+            end
+            -- Le TriggerClientEvent("union:spawn:apply") est déjà appelé dans Character.select
+        end)
         return
     end
 
-    -- Sinon → afficher la sélection de personnage
-    TriggerClientEvent("union:spawn:selectCharacter", src, player.characters)
+    -- ── Cas 2 : plusieurs personnages → menu de sélection NUI ────────────
+    SpawnHandler.logger:info(("Joueur %s : %d personnages → sélection NUI"):format(player.name, #chars))
+    TriggerClientEvent("union:spawn:selectCharacter", src, chars)
 end)
 
 -- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- RESPAWN
+-- HELPERS INTERNES
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+--- Construit un charData minimal depuis un enregistrement BDD brut
+--- (utilisé uniquement en fallback si Character.select échoue)
+function SpawnHandler._buildCharData(char)
+    local defPos = Config.spawn.defaultPosition
+    local defHdg = Config.spawn.defaultHeading
+
+    local position = defPos
+    local heading  = defHdg
+
+    if char.position then
+        local ok, p = pcall(json.decode, tostring(char.position))
+        if ok and p and p.x then
+            position = vector3(p.x, p.y, p.z)
+            heading  = p.heading or defHdg
+        end
+    end
+
+    local model = char.model or ""
+    if model ~= "mp_m_freemode_01" and model ~= "mp_f_freemode_01" then
+        model = (char.gender == "f") and Config.spawn.femaleModel or Config.spawn.defaultModel
+    end
+
+    return {
+        id          = char.id,
+        unique_id   = char.unique_id,
+        firstname   = char.firstname,
+        lastname    = char.lastname,
+        gender      = char.gender,
+        model       = model,
+        dateofbirth = char.dateofbirth,
+        position    = position,
+        heading     = heading,
+        health      = char.health or Config.character.defaultHealth,
+        armor       = char.armor  or 0,
+    }
+end
+
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- RESPAWN (mort, retour de menu, etc.)
 -- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 RegisterNetEvent("union:spawn:requestRespawn", function(model)
     local src    = source
@@ -65,7 +119,7 @@ end)
 
 -- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 -- CONFIRMATION CLIENT → SPAWN RÉUSSI
--- FIX #4 : suppression ped offline faite ici, après confirmation réelle du client
+-- FIX #4 : suppression ped offline après confirmation réelle du client
 -- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 RegisterNetEvent("union:spawn:confirm", function()
     local src    = source
@@ -76,8 +130,6 @@ RegisterNetEvent("union:spawn:confirm", function()
     player.isSpawned = true
     SpawnHandler.logger:info("Spawn confirmé pour " .. player.name)
 
-    -- FIX #4 : supprimer le ped offline ICI (après confirmation client)
-    -- et non dans Character.select (trop tôt, avant que le client ait spawné)
     if player.currentCharacter and player.currentCharacter.unique_id then
         OfflinePed.remove(player.currentCharacter.unique_id)
     end
@@ -95,21 +147,14 @@ RegisterNetEvent("union:spawn:error", function(errorType)
 end)
 
 -- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- FIX #3 : AddEventHandler LOCAL (pas RegisterNetEvent)
--- pour écouter l'event serveur union:player:spawned déclenché par TriggerEvent
+-- EVENT LOCAL SERVEUR (pour les autres modules)
 -- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 AddEventHandler("union:player:spawned", function(src, character)
-    -- Le ped offline est déjà supprimé dans union:spawn:confirm ci-dessus.
-    -- Ce handler reste disponible pour que d'autres modules (inventory, etc.)
-    -- puissent écouter l'événement de spawn.
     SpawnHandler.logger:info(("union:player:spawned déclenché pour src=%s"):format(tostring(src)))
 end)
 
--- FIX #2 : SUPPRIMÉ — le handler playerDropped qui créait OfflinePed.create
--- est retiré ici. Il existe déjà dans player/manager.lua → une seule création.
-
 -- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- HELPERS
+-- HELPERS PUBLICS
 -- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 function SpawnHandler.applyCharacter(player, characterData)
     if not player or not characterData then return false end
