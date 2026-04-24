@@ -18,11 +18,17 @@ end)
 
 -- Export functions
 exports("GetPlayerFromId", function(id)
-    return Server.players[id]
+    if PlayerManager then
+        return PlayerManager.get(tonumber(id))
+    end
+    return nil
 end)
 
 exports("GetAllPlayers", function()
-    return Server.players
+    if PlayerManager then
+        return PlayerManager.getAll()
+    end
+    return {}
 end)
 
 exports("GetConfig", function()
