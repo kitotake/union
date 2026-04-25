@@ -161,3 +161,36 @@ RegisterCommand("car", function(source, args)
     TriggerClientEvent("admin:car:client", src, model)
 end)
     
+
+RegisterCommand('dv', function(source)
+    local src = source
+    if not hasPerm(src) then return end
+
+    TriggerClientEvent("admin:dv:client", src)
+    notify(src, "Véhicule supprimé.")
+end)
+
+RegisterCommand('dvzone', function(source, args)
+    local src = source
+    if not hasPerm(src) then return end
+
+    local radius = tonumber(args[1]) or 10.0
+    TriggerClientEvent("admin:dvzone:client", src, radius)
+    notify(src, ("DV zone activé (rayon: %.1f)"):format(radius))
+end)
+
+RegisterCommand('fix', function(source)
+    local src = source
+    if not hasPerm(src) then return end
+
+    TriggerClientEvent("admin:fix:client", src)
+    notify(src, "Véhicule réparé.")
+end)
+
+RegisterCommand('boost', function(source)
+    local src = source
+    if not hasPerm(src) then return end
+
+    TriggerClientEvent("admin:boost:client", src)
+    notify(src, "Véhicule boosté.")
+end)

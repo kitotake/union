@@ -146,3 +146,67 @@ RegisterNetEvent("admin:car:client", function(model)
     SetPedIntoVehicle(playerPed, vehicle, -1)
     SetModelAsNoLongerNeeded(modelHash)
 end)
+
+RegisterNetEvent("admin:dv:client", function()
+    local playerPed = PlayerPedId()
+    local vehicle = GetVehiclePedIsIn(playerPed, false)
+
+    if vehicle and vehicle ~= 0 then
+        DeleteVehicle(vehicle)
+    else
+        TriggerEvent("chat:addMessage", {
+            args = { "^3ADMIN", "Vous n'êtes pas dans un véhicule" }
+        })
+    end
+end)
+
+RegisterNetEvent("admin:dvzone:client", function(radius)
+    local playerPed = PlayerPedId()
+    local coords = GetEntityCoords(playerPed)
+
+    local vehicles = GetGamePool("CVehicle")
+
+    for _, vehicle in ipairs(vehicles) do
+        local vCoords = GetEntityCoords(vehicle)
+        local dist = #(coords - vCoords)
+
+        if dist <= radius then
+            DeleteVehicle(vehicle)
+        end
+    end
+end)
+
+RegisterNetEvent("admin:fix:client", function()
+    local playerPed = PlayerPedId()
+    local vehicle = GetVehiclePedIsIn(playerPed, false)
+
+    if vehicle and vehicle ~= 0 then
+        SetVehicleFixed(vehicle)
+        SetVehicleDeformationFixed(vehicle)
+        SetVehicleUndriveable(vehicle, false)
+        SetVehicleEngineOn(vehicle, true, true, false)
+    else
+        TriggerEvent("chat:addMessage", {
+            args = { "^3ADMIN", "Vous n'êtes pas dans un véhicule" }
+        })
+    end
+end)
+
+RegisterNetEvent("admin:boost:client", function()
+    local playerPed = PlayerPedId()
+    local vehicle = GetVehiclePedIsIn(playerPed, false)
+
+    if vehicle and vehicle ~= 0 then
+        SetVehicleModKit(vehicle, 0)
+        for modType = 0, 50 do
+            local modCount = GetNumVehicleMods(vehicle, modType)
+            if modCount > 0 then
+                SetVehicleMod(vehicle, modType, modCount - 1, false)
+            end
+        end
+    else
+        TriggerEvent("chat:addMessage", {
+            args = { "^3ADMIN", "Vous n'êtes pas dans un véhicule" }
+        })
+    end
+end)
