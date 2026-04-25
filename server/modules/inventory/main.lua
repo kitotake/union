@@ -15,67 +15,16 @@ local function isInventoryAvailable()
     return true
 end
 
+-- ─────────────────────────────────────────────────────────────
+-- loadForPlayer : intentionnellement vide.
+-- Le chargement de l'inventaire est géré exclusivement par
+-- kt_inventory/modules/bridge/union/server.lua via l'event
+-- union:player:spawned. Appeler setPlayerInventory ici
+-- provoquerait une erreur "double-load".
+-- ─────────────────────────────────────────────────────────────
 function UnionInventory.loadForPlayer(player)
-    if not player or not player.currentCharacter then
-        UnionInventory.logger:error("loadForPlayer: joueur ou personnage invalide")
-        return
-    end
-
-    local uniqueId = player.currentCharacter.unique_id
-    if not uniqueId then
-        UnionInventory.logger:error("loadForPlayer: unique_id manquant")
-        return
-    end
-
-    local src = player.source
-
-    -- LOCK ATOMIQUE — posé avant tout appel async
-    if UnionInventory._loadedPlayers[src] then
-        UnionInventory.logger:warn(
-            ("loadForPlayer: déjà chargé pour %s — skip"):format(player.name)
-        )
-        return
-    end
-    UnionInventory._loadedPlayers[src] = true
-
-    if not isInventoryAvailable() then
-        UnionInventory._loadedPlayers[src] = nil
-        return
-    end
-
-    local inventoryPlayer = {
-        source      = src,
-        identifier  = uniqueId,
-        name        = player.name,
-        job         = {
-            name  = player.currentCharacter.job or "unemployed",
-            grade = player.currentCharacter.job_grade or 0,
-        },
-        groups      = {},
-        sex         = player.currentCharacter.gender,
-        dateofbirth = player.currentCharacter.dateofbirth,
-    }
-
-    local job = player.currentCharacter.job or "unemployed"
-    inventoryPlayer.groups[job] = player.currentCharacter.job_grade or 0
-    if player.group and player.group ~= "user" then
-        inventoryPlayer.groups[player.group] = 0
-    end
-
-    local success, err = pcall(function()
-        exports["kt_inventory"]:setPlayerInventory(inventoryPlayer)
-    end)
-
-    if not success then
-        UnionInventory.logger:error(
-            ("setPlayerInventory échoué pour %s : %s"):format(player.name, tostring(err))
-        )
-        UnionInventory._loadedPlayers[src] = nil
-        return
-    end
-
-    UnionInventory.logger:info(
-        ("Inventaire chargé pour %s (%s)"):format(player.name, uniqueId)
+    UnionInventory.logger:warn(
+        "loadForPlayer appelé directement — ignoré (géré par kt_inventory bridge)"
     )
 end
 
@@ -88,7 +37,7 @@ end)
 -- ─────────────────────────────────────────────────────────────
 -- ⚠️  PAS DE LISTENER union:player:spawned ICI
 --     Le chargement est délégué exclusivement à
---     modules/bridge/union/server.lua → server.setPlayerInventory()
+--     kt_inventory/modules/bridge/union/server.lua
 -- ─────────────────────────────────────────────────────────────
 
 function UnionInventory.save(src)
