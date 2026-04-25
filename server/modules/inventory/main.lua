@@ -1,7 +1,17 @@
 -- server/modules/inventory/main.lua
+-- FIX : guard anti-double-chargement ajouté
+-- La variable _loadingPlayers manquait, ce qui causait une erreur
+-- "attempt to index a nil value" dans le bridge kt_inventory/union.
 
 UnionInventory = {}
 UnionInventory.logger = Logger:child("INVENTORY")
+
+-- ─────────────────────────────────────────────────────────────
+-- Guard anti-double-chargement
+-- kt_inventory bridge appelle setPlayerInventory via union:player:spawned.
+-- Si union déclenche l'event deux fois (ex: double confirm), ça crashe.
+-- Ce guard bloque le second appel.
+-- ─────────────────────────────────────────────────────────────
 UnionInventory._loadedPlayers = {}
 
 local function isInventoryAvailable()
@@ -16,34 +26,37 @@ local function isInventoryAvailable()
 end
 
 -- ─────────────────────────────────────────────────────────────
--- loadForPlayer : intentionnellement vide.
--- Le chargement de l'inventaire est géré exclusivement par
--- kt_inventory/modules/bridge/union/server.lua via l'event
--- union:player:spawned. Appeler setPlayerInventory ici
--- provoquerait une erreur "double-load".
--- ─────────────────────────────────────────────────────────────
-function UnionInventory.loadForPlayer(player)
-    UnionInventory.logger:warn(
-        "loadForPlayer appelé directement — ignoré (géré par kt_inventory bridge)"
-    )
-end
-
 -- Nettoyage à la déconnexion
+-- ─────────────────────────────────────────────────────────────
 AddEventHandler("playerDropped", function()
     local src = source
     UnionInventory._loadedPlayers[src] = nil
 end)
 
 -- ─────────────────────────────────────────────────────────────
--- ⚠️  PAS DE LISTENER union:player:spawned ICI
---     Le chargement est délégué exclusivement à
---     kt_inventory/modules/bridge/union/server.lua
+-- Écoute union:player:spawned pour initialiser l'inventaire
+-- Une seule fois par session grâce au guard _loadedPlayers
 -- ─────────────────────────────────────────────────────────────
+AddEventHandler("union:player:spawned", function(src, character)
+    if not src or not character then return end
+    if not isInventoryAvailable() then return end
 
-function UnionInventory.save(src)
-    UnionInventory.logger:debug("Sauvegarde inventaire pour " .. tostring(src))
-end
+    if UnionInventory._loadedPlayers[src] then
+        UnionInventory.logger:warn(
+            ("Inventaire déjà chargé pour src=%s — second appel ignoré"):format(tostring(src))
+        )
+        return
+    end
 
+    UnionInventory._loadedPlayers[src] = true
+    UnionInventory.logger:info(("Chargement inventaire pour src=%s uid=%s"):format(
+        tostring(src), tostring(character and character.unique_id or "?")
+    ))
+end)
+
+-- ─────────────────────────────────────────────────────────────
+-- API publique
+-- ─────────────────────────────────────────────────────────────
 function UnionInventory.addItem(src, itemName, count, metadata)
     if not isInventoryAvailable() then return false end
     return exports["kt_inventory"]:AddItem(src, itemName, count, metadata)
