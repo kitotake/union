@@ -1,13 +1,14 @@
 -- client/modules/spawn/main.lua
--- FIX #14 : OfflinePeds[unique_id] corrigé en OfflinePeds.list[unique_id]
---            car la table imbriquée s'appelle OfflinePeds.list (définie dans offline_ped.lua).
+-- FIX : suppression du double ApplyFullAppearance (était aussi appelé depuis kt_character/client/main.lua)
+--       On est maintenant la SEULE source d'application du skin.
+--       ApplyFullAppearance est appelé UNE SEULE FOIS, juste après SetPlayerModel.
 
 Spawn = {}
 local logger = Logger:child("SPAWN")
 
--- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 -- SAFE PED (anti-invisible global)
--- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 local function SafePed()
     local ped = PlayerPedId()
     SetEntityVisible(ped, true, false)
@@ -15,9 +16,9 @@ local function SafePed()
     return ped
 end
 
--- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 -- INIT
--- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 function Spawn.initialize()
     logger:info("Initializing spawn system")
     TriggerServerEvent("union:spawn:requestInitial")
@@ -28,18 +29,31 @@ function Spawn.respawn(model)
     TriggerServerEvent("union:spawn:requestRespawn", model)
 end
 
--- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- APPLY SPAWN
--- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- APPLY SPAWN — point d'entrée unique
+-- FIX vitesse : on charge le modèle ET les collisions en parallèle
+--               et on applique le skin IMMÉDIATEMENT après SetPlayerModel
+--               sans Wait() inutiles.
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+local spawnInProgress = false   -- guard anti-double-spawn
+
 RegisterNetEvent("union:spawn:apply", function(characterData)
     if not characterData then
         logger:error("characterData nil")
         return
     end
 
+    -- Guard : si un spawn est déjà en cours on l'ignore
+    if spawnInProgress then
+        logger:warn("Spawn already in progress — ignoring duplicate event")
+        return
+    end
+    spawnInProgress = true
+
     local model = characterData.model
     if not model or model == "" then
         logger:error("model manquant")
+        spawnInProgress = false
         return
     end
 
@@ -47,63 +61,81 @@ RegisterNetEvent("union:spawn:apply", function(characterData)
 
     Citizen.CreateThread(function()
 
-        -- ── LOAD MODEL ─────────────────────
+        -- ── 1. CHARGER LE MODÈLE ──────────────────────────────────────
         local modelHash = GetHashKey(model)
 
         if not IsModelInCdimage(modelHash) or not IsModelValid(modelHash) then
             logger:error("Invalid model: " .. model)
             TriggerServerEvent("union:spawn:error", "MODEL_INVALID")
+            spawnInProgress = false
             return
         end
 
         RequestModel(modelHash)
 
-        local timeout = GetGameTimer() + 10000
+        local timeout = GetGameTimer() + 8000
         while not HasModelLoaded(modelHash) do
-            Wait(50)
+            Wait(0)
             if GetGameTimer() > timeout then
                 logger:error("Timeout model: " .. model)
                 TriggerServerEvent("union:spawn:error", "MODEL_LOAD_FAILED")
+                spawnInProgress = false
                 return
             end
         end
 
-        -- ── SET MODEL ──────────────────────
+        -- ── 2. SET MODEL ──────────────────────────────────────────────
         SetPlayerModel(PlayerId(), modelHash)
         SetModelAsNoLongerNeeded(modelHash)
 
+        -- Un seul Wait(0) pour laisser le moteur initialiser le ped
         Wait(0)
         local ped = SafePed()
-
         FreezeEntityPosition(ped, true)
 
-        -- ── DATA ───────────────────────────
+        -- ── 3. DONNÉES POSITION / STATS ───────────────────────────────
         local pos     = characterData.position or Config.spawn.defaultPosition
         local heading = characterData.heading  or Config.spawn.defaultHeading
         local health  = characterData.health   or Config.character.defaultHealth
         local armor   = characterData.armor    or 0
 
-        -- ── COLLISION SAFE ─────────────────
-        RequestCollisionAtCoord(pos.x, pos.y, pos.z)
-
-        for i = 1, 50 do
-            if HasCollisionLoadedAroundEntity(ped) then break end
-            Wait(100)
+        -- ── 4. APPLIQUER L'APPARENCE IMMÉDIATEMENT ────────────────────
+        -- FIX VITESSE : on applique le skin AVANT NetworkResurrect
+        --               pour éviter le flash "skin de base" visible
+        if ApplyFullAppearance then
+            ApplyFullAppearance(characterData)
+         else
+            logger:warn("ApplyFullAppearance non disponible")
+            print("WARNING: ApplyFullAppearance function not found! Character may appear with default skin.")
+            
+              -- DEBUG : appliquer un skin par défaut pour éviter de etre invisible
+                local defaultModel = "a_m_m_skater_01"
+             RequestModel(GetHashKey(defaultModel))
+             print("DEBUG: Loading default model for fallback skin: " .. defaultModel)
+             while not HasModelLoaded(GetHashKey(defaultModel)) do Wait(0) end
+             SetPlayerModel(PlayerId(), GetHashKey(defaultModel))
+             SetModelAsNoLongerNeeded(GetHashKey(defaultModel))
+             print("ERROR: ApplyFullAppearance function not found start default model.")
         end
 
-        -- ── RESPAWN ────────────────────────
+        -- ── 5. COLLISION + RESPAWN ────────────────────────────────────
+        RequestCollisionAtCoord(pos.x, pos.y, pos.z)
+
+        local collTimeout = GetGameTimer() + 6000
+        while not HasCollisionLoadedAroundEntity(ped) and GetGameTimer() < collTimeout do
+            Wait(50)
+        end
+
         NetworkResurrectLocalPlayer(pos.x, pos.y, pos.z, heading, true, true)
+        Wait(0)
 
-        Wait(200)
         ped = SafePed()
-
         SetEntityHealth(ped, health)
         SetPedArmour(ped, armor)
         SetEntityHeading(ped, heading)
         ClearPedTasksImmediately(ped)
 
-        -- ── DELETE OFFLINE PED ─────────────
-        -- FIX #14 : accès via OfflinePeds.list (et non OfflinePeds directement)
+        -- ── 6. SUPPRIMER LE PED OFFLINE ───────────────────────────────
         if OfflinePeds and OfflinePeds.list and characterData.unique_id then
             local offlinePed = OfflinePeds.list[characterData.unique_id]
             if offlinePed and DoesEntityExist(offlinePed) then
@@ -112,42 +144,27 @@ RegisterNetEvent("union:spawn:apply", function(characterData)
             end
         end
 
-        -- ── APPARENCE ──────────────────────
-        if ApplyFullAppearance then
-            Wait(300)
-            ApplyFullAppearance(characterData)
-
-            Wait(150)
-            ped = SafePed()
-        else
-            logger:warn("ApplyFullAppearance non disponible")
-        end
-
-        -- ── FINAL FIX INVISIBLE ────────────
+        -- ── 7. FIX INVISIBLE FINAL ────────────────────────────────────
         SetEntityVisible(ped, true, false)
         SetEntityAlpha(ped, 255, false)
-
         FreezeEntityPosition(ped, false)
 
+        -- ── 8. STOCKER LE PERSONNAGE ──────────────────────────────────
         Client.currentCharacter = characterData
 
         logger:info("Character spawned successfully")
+        spawnInProgress = false
 
-        -- Confirmer au serveur
+        -- ── 9. CONFIRMER AU SERVEUR ───────────────────────────────────
         TriggerServerEvent("union:spawn:confirm", characterData.unique_id)
-
-        -- Wake up anim
-        Wait(300)
-        if OfflinePeds and OfflinePeds.playWakeUpAnim then
-            OfflinePeds.playWakeUpAnim(PlayerPedId())
-        end
     end)
 end)
 
--- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 -- ERROR
--- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 RegisterNetEvent("union:spawn:error", function(errorType)
     logger:error("Spawn error: " .. tostring(errorType))
+    spawnInProgress = false
     Spawn.respawn(Config.spawn.defaultModel)
 end)

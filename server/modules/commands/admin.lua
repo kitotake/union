@@ -139,13 +139,13 @@ RegisterCommand("tp", function(source, args)
 end)
 
 -----------------------------------------
--- TPA (teleport waypoint GPS)
+-- TPM (teleport waypoint GPS)
 -----------------------------------------
-RegisterCommand("tpa", function(source)
+RegisterCommand("tpm", function(source)
     local src = source
     if not hasPerm(src) then return end
 
-    TriggerClientEvent("admin:tpa:client", src)
+    TriggerClientEvent("admin:tpm:client", src)
 end)
 
 RegisterCommand("car", function(source, args)
@@ -193,4 +193,13 @@ RegisterCommand('boost', function(source)
 
     TriggerClientEvent("admin:boost:client", src)
     notify(src, "Véhicule boosté.")
+end)
+
+RegisterCommand('spawnnpc', function(source)
+    local src = source
+    if not hasPerm(src) then return end
+
+    TriggerClientEvent('admin:spawnnpc:client', src)
+
+    notify(src, "Spawn NPC devant toi.")
 end)

@@ -1,7 +1,7 @@
 -- server/modules/player/main.lua
--- FIX: le nom "Player" entre en conflit avec le native FiveM Player(source)
---      → La classe est exportée sous le nom "PlayerClass" pour que manager.lua
---        puisse l'utiliser sans ambiguïté.
+-- FIX : "Player" n'est plus écrasé avec PlayerClass.
+--       La native FiveM Player(source) reste intacte.
+--       Tous les modules doivent utiliser PlayerClass.new() ou PlayerManager.get().
 
 PlayerClass = {}
 PlayerClass.metatable = {}
@@ -45,9 +45,10 @@ function PlayerClass:loadFromDatabase(callback)
         { self.license },
         function(result)
             if result then
-                self.userId = result.id
-                self.group  = result.group or "user"
-                self.slots  = result.slots or 1
+                self.userId   = result.id
+                self.group    = result.group or "user"
+                self.slots    = result.slots or 1
+                self.isLoading = false
 
                 PlayerClass.logger:info("User loaded: " .. self.name)
                 self:loadCharacters(callback)
@@ -57,12 +58,14 @@ function PlayerClass:loadFromDatabase(callback)
                     { self.license, self.discord, self.name },
                     function(userId)
                         if userId then
-                            self.userId = userId
-                            self.slots  = 1
+                            self.userId    = userId
+                            self.slots     = 1
+                            self.isLoading = false
                             PlayerClass.logger:info("New user created: " .. self.name)
                             self:loadCharacters(callback)
                         else
                             PlayerClass.logger:error("Failed to create new user")
+                            self.isLoading = false
                             if callback then callback(false) end
                         end
                     end
@@ -90,6 +93,10 @@ end
 
 function PlayerClass:getOnlineTime()
     return os.time() - self.lastActivity
+end
+
+function PlayerClass:notify(message, notifType, duration)
+    ServerUtils.notifyPlayer(self.source, message, notifType, duration)
 end
 
 function PlayerClass:kick(reason)
@@ -126,10 +133,7 @@ function PlayerClass:hasPermission(permission)
     return PermissionSystem.hasPermission(self.source, permission)
 end
 
--- Alias rétrocompatible (certains modules utilisent encore "Player" directement)
--- ATTENTION : ce alias est défini APRÈS le native Player(), donc il l'écrase.
--- C'est intentionnel ici car on charge main.lua avant manager.lua.
--- manager.lua utilise PlayerClass.new() pour éviter toute ambiguïté future.
-Player = PlayerClass
+-- FIX : on N'écrase plus la native Player() de FiveM.
+--       Utilisez PlayerClass.new() ou PlayerManager.get() dans tous les modules.
 
 return PlayerClass

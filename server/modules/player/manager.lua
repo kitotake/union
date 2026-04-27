@@ -1,8 +1,5 @@
 -- server/modules/player/manager.lua
--- FIX: conflit de nom entre la classe Player (main.lua) et le native FiveM Player()
---      → PlayerClass.new() utilisé à la place de Player.new()
--- FIX: sauvegarde position JSON à la déconnexion
--- AJOUT: création ped persistant hors-ligne à la déconnexion
+-- FIX : utilise PlayerClass.new() — la native Player() n'est plus écrasée.
 
 PlayerManager = {}
 PlayerManager.logger = Logger:child("PLAYER:MANAGER")
@@ -30,18 +27,7 @@ end
 
 function PlayerManager.getByLicense(license)
     for _, player in pairs(PlayerManager.players) do
-        if player.license == license then
-            return player
-        end
-    end
-    return nil
-end
-
-function PlayerManager.getByName(name)
-    for _, player in pairs(PlayerManager.players) do
-        if player.name == name then
-            return player
-        end
+        if player.license == license then return player end
     end
     return nil
 end
@@ -59,26 +45,12 @@ end
 
 function PlayerManager.count()
     local count = 0
-    for _ in pairs(PlayerManager.players) do
-        count = count + 1
-    end
+    for _ in pairs(PlayerManager.players) do count = count + 1 end
     return count
 end
 
-function PlayerManager.notifyAll(message, type, duration)
-    for _, player in pairs(PlayerManager.players) do
-        player:notify(message, type, duration)
-    end
-end
-
 function PlayerManager.getStats()
-    local stats = {
-        total      = PlayerManager.count(),
-        admins     = 0,
-        moderators = 0,
-        users      = 0,
-    }
-
+    local stats = { total = PlayerManager.count(), admins = 0, moderators = 0, users = 0 }
     for _, player in pairs(PlayerManager.players) do
         if player:isAdmin() then
             stats.admins = stats.admins + 1
@@ -88,7 +60,6 @@ function PlayerManager.getStats()
             stats.users = stats.users + 1
         end
     end
-
     return stats
 end
 
@@ -96,40 +67,41 @@ end
 -- Joueur rejoint
 -- ──────────────────────────────────────────────────────────────────────────
 RegisterNetEvent("union:player:joined", function()
-    local source = source
+    local src = source
 
-    local player = PlayerManager.create(source)
+    local player = PlayerManager.create(src)
     if not player then
-        PlayerManager.logger:error("Failed to create player object for source " .. tostring(source))
-        DropPlayer(source, "Failed to initialize player data")
+        PlayerManager.logger:error("Failed to create player object for source " .. tostring(src))
+        DropPlayer(src, "Failed to initialize player data")
         return
     end
 
     player:loadFromDatabase(function(success)
         if success then
             PlayerManager.logger:info("Player " .. player.name .. " loaded successfully")
-            Auth.Webhooks.playerJoined(source)
-            TriggerClientEvent("union:player:loaded", source)
+            Auth.Webhooks.playerJoined(src)
+            -- FIX : union:player:loaded est envoyé ici, le client appellera Spawn.initialize()
+            TriggerClientEvent("union:player:loaded", src)
         else
-            PlayerManager.logger:error("Failed to load player " .. tostring(source))
-            DropPlayer(source, "Failed to load player data")
+            PlayerManager.logger:error("Failed to load player " .. tostring(src))
+            DropPlayer(src, "Failed to load player data")
         end
     end)
 end)
 
 -- ──────────────────────────────────────────────────────────────────────────
--- Joueur quitte
+-- Joueur quitte — sauvegarde position + création ped offline
 -- ──────────────────────────────────────────────────────────────────────────
 AddEventHandler("playerDropped", function(reason)
-    local source = source
-    local player = PlayerManager.get(source)
+    local src    = source
+    local player = PlayerManager.get(src)
 
     if player then
-        Auth.Webhooks.playerLeft(source, reason)
+        Auth.Webhooks.playerLeft(src, reason)
         PlayerManager.logger:info("Player " .. player.name .. " disconnected: " .. reason)
 
         if player.currentCharacter then
-            local ped = GetPlayerPed(source)
+            local ped = GetPlayerPed(src)
 
             if DoesEntityExist(ped) then
                 local coords  = GetEntityCoords(ped)
@@ -138,43 +110,30 @@ AddEventHandler("playerDropped", function(reason)
                 local armor   = GetPedArmour(ped)
 
                 local posJson = json.encode({
-                    x       = coords.x,
-                    y       = coords.y,
-                    z       = coords.z,
-                    heading = heading,
+                    x = coords.x, y = coords.y, z = coords.z, heading = heading,
                 })
 
                 Database.execute([[
                     UPDATE characters SET
-                    position = ?, health = ?, armor = ?,
-                    last_played = NOW()
+                    position = ?, health = ?, armor = ?, last_played = NOW()
                     WHERE unique_id = ?
-                ]], {
-                    posJson, health, armor,
-                    player.currentCharacter.unique_id,
-                }, function(result)
+                ]], { posJson, health, armor, player.currentCharacter.unique_id },
+                function(result)
                     if result then
                         PlayerManager.logger:info("Character saved on disconnect for " .. player.name)
                     else
-                        PlayerManager.logger:error("Failed to save character on disconnect for " .. player.name)
+                        PlayerManager.logger:error("Failed to save character for " .. player.name)
                     end
                 end)
 
-                -- Créer le ped persistant avec la position actuelle
                 if OfflinePed then
                     local charSnapshot = {}
-                    for k, v in pairs(player.currentCharacter) do
-                        charSnapshot[k] = v
-                    end
+                    for k, v in pairs(player.currentCharacter) do charSnapshot[k] = v end
                     charSnapshot.position = {
-                        x       = coords.x,
-                        y       = coords.y,
-                        z       = coords.z,
-                        heading = heading,
+                        x = coords.x, y = coords.y, z = coords.z, heading = heading,
                     }
-
                     OfflinePed.create({
-                        source           = source,
+                        source           = src,
                         name             = player.name,
                         currentCharacter = charSnapshot,
                         group            = player.group,
@@ -183,8 +142,8 @@ AddEventHandler("playerDropped", function(reason)
             end
         end
 
-        PlayerManager.remove(source)
+        PlayerManager.remove(src)
     end
 end)
 
-return PlayerManager    
+return PlayerManager

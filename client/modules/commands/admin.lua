@@ -97,7 +97,7 @@ RegisterNetEvent("admin:tp:client", function(coords)
     SetEntityCoords(PlayerPedId(), coords.x, coords.y, coords.z)
 end)
 
-RegisterNetEvent("admin:tpa:client", function()
+RegisterNetEvent("admin:tpm:client", function()
     local ped = PlayerPedId()
 
     -- Check waypoint blip
@@ -209,4 +209,29 @@ RegisterNetEvent("admin:boost:client", function()
             args = { "^3ADMIN", "Vous n'êtes pas dans un véhicule" }
         })
     end
+end)
+
+RegisterNetEvent('admin:spawnnpc:client', function()
+    local playerPed = PlayerPedId()
+    local coords = GetEntityCoords(playerPed)
+    local forward = GetEntityForwardVector(playerPed)
+
+    local spawnPos = coords + (forward * 2.0)
+
+    local model = `a_m_m_business_01`
+
+    RequestModel(model)
+    while not HasModelLoaded(model) do
+        Wait(10)
+    end
+
+    local ped = CreatePed(0, model, spawnPos.x, spawnPos.y, spawnPos.z, GetEntityHeading(playerPed), true, false)
+
+    SetEntityAsMissionEntity(ped, true, true)
+    SetBlockingOfNonTemporaryEvents(ped, true)
+    FreezeEntityPosition(ped, true)
+
+    SetModelAsNoLongerNeeded(model)
+
+    print("NPC spawn:", ped)
 end)
