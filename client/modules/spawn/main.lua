@@ -1,7 +1,6 @@
 -- client/modules/spawn/main.lua
--- FIX : suppression du double ApplyFullAppearance (était aussi appelé depuis kt_character/client/main.lua)
---       On est maintenant la SEULE source d'application du skin.
---       ApplyFullAppearance est appelé UNE SEULE FOIS, juste après SetPlayerModel.
+-- FIX : suppression du double ApplyFullAppearance
+--       utilisation propre de l'export kt_appearance
 
 Spawn = {}
 local logger = Logger:child("SPAWN")
@@ -30,12 +29,9 @@ function Spawn.respawn(model)
 end
 
 -- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- APPLY SPAWN — point d'entrée unique
--- FIX vitesse : on charge le modèle ET les collisions en parallèle
---               et on applique le skin IMMÉDIATEMENT après SetPlayerModel
---               sans Wait() inutiles.
+-- APPLY SPAWN
 -- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-local spawnInProgress = false   -- guard anti-double-spawn
+local spawnInProgress = false
 
 RegisterNetEvent("union:spawn:apply", function(characterData)
     if not characterData then
@@ -43,7 +39,6 @@ RegisterNetEvent("union:spawn:apply", function(characterData)
         return
     end
 
-    -- Guard : si un spawn est déjà en cours on l'ignore
     if spawnInProgress then
         logger:warn("Spawn already in progress — ignoring duplicate event")
         return
@@ -61,7 +56,7 @@ RegisterNetEvent("union:spawn:apply", function(characterData)
 
     Citizen.CreateThread(function()
 
-        -- ── 1. CHARGER LE MODÈLE ──────────────────────────────────────
+        -- ── 1. LOAD MODEL ─────────────────────────────
         local modelHash = GetHashKey(model)
 
         if not IsModelInCdimage(modelHash) or not IsModelValid(modelHash) then
@@ -84,41 +79,37 @@ RegisterNetEvent("union:spawn:apply", function(characterData)
             end
         end
 
-        -- ── 2. SET MODEL ──────────────────────────────────────────────
+        -- ── 2. SET MODEL ──────────────────────────────
         SetPlayerModel(PlayerId(), modelHash)
         SetModelAsNoLongerNeeded(modelHash)
 
-        -- Un seul Wait(0) pour laisser le moteur initialiser le ped
         Wait(0)
         local ped = SafePed()
         FreezeEntityPosition(ped, true)
 
-        -- ── 3. DONNÉES POSITION / STATS ───────────────────────────────
+        -- ── 3. DATA ───────────────────────────────────
         local pos     = characterData.position or Config.spawn.defaultPosition
         local heading = characterData.heading  or Config.spawn.defaultHeading
         local health  = characterData.health   or Config.character.defaultHealth
         local armor   = characterData.armor    or 0
 
-        -- ── 4. APPLIQUER L'APPARENCE IMMÉDIATEMENT ────────────────────
-        -- FIX VITESSE : on applique le skin AVANT NetworkResurrect
-        --               pour éviter le flash "skin de base" visible
-        if ApplyFullAppearance then
-            ApplyFullAppearance(characterData)
-         else
-            logger:warn("ApplyFullAppearance non disponible")
-            print("WARNING: ApplyFullAppearance function not found! Character may appear with default skin.")
-            
-              -- DEBUG : appliquer un skin par défaut pour éviter de etre invisible
-                local defaultModel = "a_m_m_skater_01"
-             RequestModel(GetHashKey(defaultModel))
-             print("DEBUG: Loading default model for fallback skin: " .. defaultModel)
-             while not HasModelLoaded(GetHashKey(defaultModel)) do Wait(0) end
-             SetPlayerModel(PlayerId(), GetHashKey(defaultModel))
-             SetModelAsNoLongerNeeded(GetHashKey(defaultModel))
-             print("ERROR: ApplyFullAppearance function not found start default model.")
+        -- ── 4. APPEARANCE ────────────────────────────
+        local ok, err = pcall(function()
+            exports["kt_character"]:ApplyFullAppearance(characterData)
+        end)
+
+        if not ok then
+            logger:warn("ApplyFullAppearance export failed: " .. tostring(err))
+
+            local defaultModel = "a_m_m_skater_01"
+            RequestModel(GetHashKey(defaultModel))
+            while not HasModelLoaded(GetHashKey(defaultModel)) do Wait(0) end
+
+            SetPlayerModel(PlayerId(), GetHashKey(defaultModel))
+            SetModelAsNoLongerNeeded(defaultModel)
         end
 
-        -- ── 5. COLLISION + RESPAWN ────────────────────────────────────
+        -- ── 5. COLLISION + RESPAWN ───────────────────
         RequestCollisionAtCoord(pos.x, pos.y, pos.z)
 
         local collTimeout = GetGameTimer() + 6000
@@ -135,7 +126,7 @@ RegisterNetEvent("union:spawn:apply", function(characterData)
         SetEntityHeading(ped, heading)
         ClearPedTasksImmediately(ped)
 
-        -- ── 6. SUPPRIMER LE PED OFFLINE ───────────────────────────────
+        -- ── 6. OFFLINE PED CLEAN ──────────────────────
         if OfflinePeds and OfflinePeds.list and characterData.unique_id then
             local offlinePed = OfflinePeds.list[characterData.unique_id]
             if offlinePed and DoesEntityExist(offlinePed) then
@@ -144,18 +135,18 @@ RegisterNetEvent("union:spawn:apply", function(characterData)
             end
         end
 
-        -- ── 7. FIX INVISIBLE FINAL ────────────────────────────────────
+        -- ── 7. FINAL FIX VISIBILITY ───────────────────
         SetEntityVisible(ped, true, false)
         SetEntityAlpha(ped, 255, false)
         FreezeEntityPosition(ped, false)
 
-        -- ── 8. STOCKER LE PERSONNAGE ──────────────────────────────────
+        -- ── 8. STORE CHARACTER ────────────────────────
         Client.currentCharacter = characterData
 
         logger:info("Character spawned successfully")
         spawnInProgress = false
 
-        -- ── 9. CONFIRMER AU SERVEUR ───────────────────────────────────
+        -- ── 9. SERVER CONFIRM ─────────────────────────
         TriggerServerEvent("union:spawn:confirm", characterData.unique_id)
     end)
 end)
