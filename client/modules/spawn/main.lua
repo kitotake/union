@@ -95,11 +95,11 @@ RegisterNetEvent("union:spawn:apply", function(characterData)
 
         -- ── 4. APPEARANCE ────────────────────────────
         local ok, err = pcall(function()
-            exports["kt_character"]:ApplyFullAppearance(characterData)
+            exports["kt_character"]:ApplyPreview(characterData)
         end)
 
         if not ok then
-            logger:warn("ApplyFullAppearance export failed: " .. tostring(err))
+            logger:warn("ApplyPreview export failed: " .. tostring(err))
 
             local defaultModel = "a_m_m_skater_01"
             RequestModel(GetHashKey(defaultModel))
