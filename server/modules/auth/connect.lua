@@ -38,7 +38,7 @@ AddEventHandler("playerConnecting", function(sName, setKickReason, deferrals)
     end
 
     if not discord or discord == "" then
-        table.insert(missing, "Discord Account")
+        table.insert(missing, "Join us on Discord or on Discord servers")
     end
 
     if #missing > 0 then
