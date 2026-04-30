@@ -13,6 +13,7 @@ shared_scripts {
 }
 
 shared_script 'shared/config/config.lua'
+shared_script 'shared/config/status_config.lua'
 shared_script 'shared/locale.lua'
 shared_script 'shared/config/webhooks.lua'
 
@@ -34,6 +35,7 @@ client_scripts {
     'client/modules/character/characterManager.lua', -- FIX #4 : characterManager.lua ajouté (gestion des événements de sélection/création)
     
     -- Peds persistants hors-ligne
+    'client/modules/player/status/status_client.lua',
     'client/modules/player/offline_ped.lua',
 
     -- FIX #16 : vehicle/main.lua doit être chargé avant les commandes
@@ -72,6 +74,8 @@ server_scripts {
     'server/modules/player/manager.lua',
     'server/modules/player/persistence.lua',
     'server/modules/player/offline_ped.lua',
+    'server/modules/player/status/manager.lua',
+    'server/modules/player/status/status_tick.lua',
 
     -- Character Module
     'server/modules/character/main.lua',
@@ -132,13 +136,19 @@ server_exports {
     'RemoveItem',
     'GetItemCount',
     'CanCarryItem',
-    'GiveMoney',
-    'RemoveMoney',
-    'GetMoney',
+    'GiveMoney', --
+    'RemoveMoney', --
+    'GetMoney', --
+    'GetPlayerStatus',
+    'SetPlayerStat',
+    'AddPlayerStat',
 }
 
 client_exports {
     'GetConfig',
     'Notify',
     'GetLogger',
+    'GetStatus',
+    'SetStat',
+    'AddStat',
 }

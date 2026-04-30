@@ -90,6 +90,32 @@ CREATE TABLE IF NOT EXISTS `characters` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- ============================================
+-- PLAYER STATUS
+-- Union Framework — Status System
+-- ============================================
+
+CREATE TABLE IF NOT EXISTS `player_status` (
+    `id`          INT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `identifier`  VARCHAR(60)  NOT NULL,
+    `unique_id`   VARCHAR(36)  NOT NULL,
+
+    `hunger`      TINYINT UNSIGNED NOT NULL DEFAULT 100,
+    `thirst`      TINYINT UNSIGNED NOT NULL DEFAULT 100,
+    `stress`      TINYINT UNSIGNED NOT NULL DEFAULT 0,
+
+    `last_update` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uniq_unique_id` (`unique_id`),
+    INDEX `idx_identifier`      (`identifier`),
+
+    CONSTRAINT `fk_status_char`
+        FOREIGN KEY (`unique_id`)
+        REFERENCES `characters` (`unique_id`)
+        ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- ============================================
 -- CHARACTER APPEARANCES
 -- ============================================
 CREATE TABLE IF NOT EXISTS `character_appearances` (

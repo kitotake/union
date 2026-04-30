@@ -1,13 +1,14 @@
--- client/modules/spawn/main.lua
--- FIX : suppression du double ApplyFullAppearance
---       utilisation propre de l'export kt_appearance
+-- fixes/client/modules/spawn/main.lua
+-- VERSION CORRIGÉE : utilise Bridge.Character.applyAppearance()
+-- au lieu d'appeler exports["kt_character"] directement
+-- Plus aucun appel direct à un module externe dans ce fichier
 
 Spawn = {}
 local logger = Logger:child("SPAWN")
 
--- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- SAFE PED (anti-invisible global)
--- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- SAFE PED
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 local function SafePed()
     local ped = PlayerPedId()
     SetEntityVisible(ped, true, false)
@@ -15,9 +16,9 @@ local function SafePed()
     return ped
 end
 
--- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 -- INIT
--- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 function Spawn.initialize()
     logger:info("Initializing spawn system")
     TriggerServerEvent("union:spawn:requestInitial")
@@ -28,9 +29,9 @@ function Spawn.respawn(model)
     TriggerServerEvent("union:spawn:requestRespawn", model)
 end
 
--- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 -- APPLY SPAWN
--- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 local spawnInProgress = false
 
 RegisterNetEvent("union:spawn:apply", function(characterData)
@@ -47,7 +48,7 @@ RegisterNetEvent("union:spawn:apply", function(characterData)
 
     local model = characterData.model
     if not model or model == "" then
-        logger:error("model manquant")
+        logger:error("model manquant dans characterData")
         spawnInProgress = false
         return
     end
@@ -67,7 +68,6 @@ RegisterNetEvent("union:spawn:apply", function(characterData)
         end
 
         RequestModel(modelHash)
-
         local timeout = GetGameTimer() + 8000
         while not HasModelLoaded(modelHash) do
             Wait(0)
@@ -93,25 +93,13 @@ RegisterNetEvent("union:spawn:apply", function(characterData)
         local health  = characterData.health   or Config.character.defaultHealth
         local armor   = characterData.armor    or 0
 
-        -- ── 4. APPEARANCE ────────────────────────────
-        local ok, err = pcall(function()
-            exports["kt_character"]:ApplyPreview(characterData)
-        end)
-
-        if not ok then
-            logger:warn("ApplyPreview export failed: " .. tostring(err))
-
-            local defaultModel = "a_m_m_skater_01"
-            RequestModel(GetHashKey(defaultModel))
-            while not HasModelLoaded(GetHashKey(defaultModel)) do Wait(0) end
-
-            SetPlayerModel(PlayerId(), GetHashKey(defaultModel))
-            SetModelAsNoLongerNeeded(defaultModel)
-        end
+        -- ── 4. APPARENCE via Bridge ───────────────────
+        -- CORRIGÉ : plus d'appel direct à exports["kt_character"]
+        -- Bridge.Character gère le fallback si kt_character est absent
+        Bridge.Character.applyAppearance(characterData)
 
         -- ── 5. COLLISION + RESPAWN ───────────────────
         RequestCollisionAtCoord(pos.x, pos.y, pos.z)
-
         local collTimeout = GetGameTimer() + 6000
         while not HasCollisionLoadedAroundEntity(ped) and GetGameTimer() < collTimeout do
             Wait(50)
@@ -148,12 +136,15 @@ RegisterNetEvent("union:spawn:apply", function(characterData)
 
         -- ── 9. SERVER CONFIRM ─────────────────────────
         TriggerServerEvent("union:spawn:confirm", characterData.unique_id)
+
+        -- ── 10. EVENT LOCAL (HUD, Target, etc.) ───────
+        TriggerEvent("union:player:spawned", characterData)
     end)
 end)
 
--- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 -- ERROR
--- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 RegisterNetEvent("union:spawn:error", function(errorType)
     logger:error("Spawn error: " .. tostring(errorType))
     spawnInProgress = false

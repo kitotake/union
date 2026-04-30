@@ -1,155 +1,108 @@
--- server/modules/spawn/handler.lua
--- FIX #1 : suppression du double routing.
---           characters:playerReady (characterManager.lua) ET union:spawn:requestInitial
---           faisaient la même chose. On garde UNIQUEMENT union:spawn:requestInitial ici.
---           characterManager.lua est conservé pour le flow NUI (autoSpawn, openSelection, openCreation).
+-- fixes/server/modules/character/characterManager.lua
+-- VERSION CORRIGÉE : supprime les NetEvents dupliqués avec spawn/handler.lua
+-- Ce fichier gère UNIQUEMENT le flow NUI (openCreator, autoSpawn, sélection multi-perso)
+-- Tous les handlers union:spawn:requestInitial / confirm / error sont dans spawn/handler.lua
 
-SpawnHandler        = {}
-SpawnHandler.logger = Logger:child("SPAWN:HANDLER")
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- SÉLECTION DE PERSONNAGE DEPUIS LA NUI
+-- Reçu quand le joueur clique "Jouer" dans l'interface de sélection
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
--- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- INITIAL SPAWN — déclenché par le client après handler.lua
--- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-RegisterNetEvent("union:spawn:requestInitial", function()
+RegisterNetEvent("characters:selectCharacter", function(charId)
     local src    = source
     local player = PlayerManager.get(src)
 
     if not player then
-        SpawnHandler.logger:error("requestInitial: joueur introuvable pour source " .. src)
+        Logger:warn("[charManager] selectCharacter : joueur introuvable src=" .. src)
+        TriggerClientEvent("characters:error", src, "Session expirée. Reconnectez-vous.")
         return
     end
 
-    -- Attendre que le joueur soit chargé (cas rare de timing)
-    if player.isLoading then
-        local waited = 0
-        while player.isLoading and waited < 50 do
-            Wait(100)
-            waited = waited + 1
+    local characterId = tonumber(charId)
+    if not characterId or characterId <= 0 then
+        TriggerClientEvent("characters:error", src, "ID de personnage invalide.")
+        return
+    end
+
+    -- Vérifie que le personnage appartient bien au joueur
+    local owned = false
+    for _, char in ipairs(player.characters or {}) do
+        if char.id == characterId then
+            owned = true
+            break
         end
     end
 
-    local chars = player.characters or {}
-
-    -- ── Cas 0 : aucun personnage → création ──────────────────────────
-    if #chars == 0 then
-        SpawnHandler.logger:info(("Joueur %s : 0 personnage → création"):format(player.name))
-        TriggerClientEvent("union:spawn:noCharacters", src)
-        TriggerClientEvent("kt_character:openCreator", src)
+    if not owned then
+        Logger:warn("[charManager] Tentative de sélection d'un personnage non possédé — src=" .. src)
+        TriggerClientEvent("characters:error", src, "Personnage introuvable.")
         return
     end
 
-    -- ── Cas 1 : un seul personnage → spawn automatique ───────────────
-    if #chars == 1 then
-        SpawnHandler.logger:info(("Joueur %s : 1 personnage → spawn automatique"):format(player.name))
-        Character.select(player, chars[1].id, function(success)
-            if not success then
-                SpawnHandler.logger:error("Auto-select échoué pour " .. player.name)
-                TriggerClientEvent("union:spawn:apply", src, SpawnHandler._buildCharData(chars[1]))
-            end
-        end)
-        return
-    end
-
-    -- ── Cas 2 : plusieurs personnages → menu de sélection NUI ────────
-    SpawnHandler.logger:info(("Joueur %s : %d personnages → sélection NUI"):format(player.name, #chars))
-    TriggerClientEvent("union:spawn:selectCharacter", src, chars)
-end)
-
--- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- HELPERS INTERNES
--- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-function SpawnHandler._buildCharData(char)
-    local defPos = Config.spawn.defaultPosition
-    local defHdg = Config.spawn.defaultHeading
-    local position, heading = defPos, defHdg
-
-    if char.position then
-        local ok, p = pcall(json.decode, tostring(char.position))
-        if ok and p and p.x then
-            position = vector3(p.x, p.y, p.z)
-            heading  = p.heading or defHdg
+    -- Délègue à Character.select qui gère le spawn
+    Character.select(player, characterId, function(success, character)
+        if not success then
+            TriggerClientEvent("characters:error", src, "Erreur lors de la sélection du personnage.")
+            return
         end
-    end
 
-    local model = char.model or ""
-    if model ~= "mp_m_freemode_01" and model ~= "mp_f_freemode_01" then
-        model = (char.gender == "f") and Config.spawn.femaleModel or Config.spawn.defaultModel
-    end
+        Logger:info(("[charManager] Personnage sélectionné : %s %s pour %s"):format(
+            character.firstname or "?",
+            character.lastname  or "?",
+            player.name
+        ))
 
-    return {
-        id          = char.id,
-        unique_id   = char.unique_id,
-        firstname   = char.firstname,
-        lastname    = char.lastname,
-        gender      = char.gender,
-        model       = model,
-        dateofbirth = char.dateofbirth,
-        position    = position,
-        heading     = heading,
-        health      = char.health or Config.character.defaultHealth,
-        armor       = char.armor  or 0,
-    }
-end
+        -- Ferme la NUI côté client
+        TriggerClientEvent("characters:doSpawn", src, character)
+    end)
+end)
 
--- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- RESPAWN
--- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-RegisterNetEvent("union:spawn:requestRespawn", function(model)
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- CRÉATION DE PERSONNAGE COMPLÈTE (depuis kt_character)
+-- Reçu quand kt_character a terminé la création
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+RegisterNetEvent("kt_character:characterCreated", function(data)
     local src    = source
     local player = PlayerManager.get(src)
-    if not player or not player.currentCharacter then return end
 
-    local char = player.currentCharacter
-    TriggerClientEvent("union:spawn:apply", src, {
-        id        = char.id,
-        unique_id = char.unique_id,
-        model     = model or char.model or Config.spawn.defaultModel,
-        position  = Config.spawn.defaultPosition,
-        heading   = Config.spawn.defaultHeading,
-        health    = Config.character.defaultHealth,
-        armor     = 0,
-    })
-end)
-
--- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- CONFIRMATION CLIENT → SPAWN RÉUSSI
--- FIX : OfflinePed.remove() après confirmation réelle client
--- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-RegisterNetEvent("union:spawn:confirm", function()
-    local src    = source
-    local player = PlayerManager.get(src)
-    if not player then return end
-
-    player.isSpawned = true
-    SpawnHandler.logger:info("Spawn confirmé pour " .. player.name)
-
-    if player.currentCharacter and player.currentCharacter.unique_id then
-        OfflinePed.remove(player.currentCharacter.unique_id)
+    if not player then
+        Logger:warn("[charManager] kt_character:characterCreated — joueur introuvable src=" .. src)
+        return
     end
 
-    TriggerEvent("union:player:spawned", src, player.currentCharacter)
-    TriggerClientEvent("union:player:spawned", src, player.currentCharacter)
+    if not data then
+        TriggerClientEvent("characters:error", src, "Données de personnage manquantes.")
+        return
+    end
+
+    Logger:info(("[charManager] Création depuis kt_character pour %s"):format(player.name))
+
+    Character.create(player, data, function(success, characterId, uniqueId)
+        if success then
+            Logger:info(("[charManager] Personnage créé ID=%s UID=%s"):format(
+                tostring(characterId),
+                tostring(uniqueId)
+            ))
+            -- Recharge les persos et spawn automatiquement le nouveau
+            player:loadCharacters(function()
+                Character.select(player, characterId, function(selSuccess)
+                    if not selSuccess then
+                        TriggerClientEvent("characters:error", src, "Spawn après création échoué.")
+                    end
+                end)
+            end)
+        else
+            TriggerClientEvent("characters:error", src, "Création du personnage échouée.")
+        end
+    end)
 end)
 
--- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- ERREUR CÔTÉ CLIENT
--- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-RegisterNetEvent("union:spawn:error", function(errorType)
-    local src = source
-    SpawnHandler.logger:error(("Erreur spawn [%s]: %s"):format(src, tostring(errorType)))
-end)
-
--- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- HELPERS PUBLICS
--- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-function SpawnHandler.applyCharacter(player, characterData)
-    if not player or not characterData then return false end
-    TriggerClientEvent("union:spawn:apply", player.source, characterData)
-    return true
-end
-
-AddEventHandler("union:player:spawned", function(src, character)
-    SpawnHandler.logger:info(("union:player:spawned src=%s"):format(tostring(src)))
-end)
-
-return SpawnHandler
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- NOTE : les handlers suivants sont dans spawn/handler.lua
+-- NE PAS les redéclarer ici :
+--   RegisterNetEvent("union:spawn:requestInitial")
+--   RegisterNetEvent("union:spawn:requestRespawn")
+--   RegisterNetEvent("union:spawn:confirm")
+--   RegisterNetEvent("union:spawn:error")
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
