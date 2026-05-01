@@ -40,7 +40,8 @@ client_scripts {
     'bridge/client/kt_character.lua',
     'bridge/client/kt_hud.lua',
     'bridge/client/kt_target.lua',
-    'bridge/client/kt_interact.lua',
+    'bridge/client/kt_interact_data.lua',
+    'bridge/client/kt_interact_editor.lua',
     'bridge/client/kt_rotation.lua',
     'bridge/client/k_menu.lua',
 

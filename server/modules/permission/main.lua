@@ -104,30 +104,6 @@ RegisterNetEvent("union:permission:check", function(permission, requestId)
     TriggerClientEvent("union:permission:checkResponse", source, requestId, hasPermission)
 end)
 
--- Commands
-RegisterCommand("checkperm", function(source, args)
-    if not args[1] then
-        TriggerClientEvent("chat:addMessage", source, {
-            color = {255, 50, 50},
-            multiline = true,
-            args = {"[PERMISSION]", "Usage: /checkperm [permission]"}
-        })
-        return
-    end
-    
-    local perm = args[1]
-    local hasIt = PermissionSystem.hasPermission(source, perm)
-    
-    local msg = hasIt and "✓ You have permission: " .. perm or "✗ You don't have permission: " .. perm
-    local color = hasIt and {50, 255, 50} or {255, 50, 50}
-    
-    TriggerClientEvent("chat:addMessage", source, {
-        color = color,
-        multiline = true,
-        args = {"[PERMISSION]", msg}
-    })
-end)
-
 RegisterCommand("mygroup", function(source)
     local player = PlayerManager.get(source)
     if not player then return end

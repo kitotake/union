@@ -310,6 +310,36 @@ CREATE TABLE IF NOT EXISTS `user_licenses` (
         ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- kt_interact_data/schema.sql
+-- À exécuter une seule fois sur ta base de données FiveM.
+
+CREATE TABLE IF NOT EXISTS `kt_interact_data` (
+    `id`          VARCHAR(36)   NOT NULL,
+    `type`        VARCHAR(32)   NOT NULL DEFAULT 'zone',
+    `zone_type`   VARCHAR(16)   DEFAULT NULL,
+    `label`       VARCHAR(128)  NOT NULL,
+    `icon`        VARCHAR(64)   NOT NULL DEFAULT 'fas fa-hand-pointer',
+    `icon_color`  VARCHAR(32)   DEFAULT NULL,
+    `event_type`  VARCHAR(16)   NOT NULL DEFAULT 'event',
+    `event_name`  VARCHAR(255)  NOT NULL,
+    `distance`    FLOAT         NOT NULL DEFAULT 3.0,
+    `coords`      JSON          DEFAULT NULL,
+    `size`        JSON          DEFAULT NULL,
+    `rotation`    FLOAT         NOT NULL DEFAULT 0.0,
+    `radius`      FLOAT         NOT NULL DEFAULT 1.0,
+    `model_hash`  VARCHAR(32)   DEFAULT NULL,
+    `net_id`      INT           DEFAULT NULL,
+    `conditions`  JSON          DEFAULT NULL,
+    `prop_model`  VARCHAR(64)   DEFAULT NULL,
+    `prop_offset` JSON          DEFAULT NULL,
+    `created_by`  VARCHAR(64)   DEFAULT NULL,
+    `created_at`  TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `updated_at`  TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    `active`      TINYINT(1)    NOT NULL DEFAULT 1,
+    PRIMARY KEY (`id`),
+    INDEX `idx_type_active` (`type`, `active`),
+    INDEX `idx_active`      (`active`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ============================================
 -- ACTION LOGS a modifier 
