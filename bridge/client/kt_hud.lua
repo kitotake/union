@@ -1,38 +1,36 @@
 -- bridge/client/kt_hud.lua
 -- Bridge client vers kt_hud
--- Fix : normalisation santé 100-200 → 0-100%
--- Thread de mise à jour uniquement quand un personnage est actif
+-- FIX : SendNUIMessage depuis "union" échoue (union n'a pas de frame NUI).
+--       La solution correcte est de déléguer l'envoi à kt_hud lui-même
+--       via un event local client (TriggerEvent = même process, pas de réseau).
+--       kt_hud/client/main.lua doit enregistrer "kt_hud:sendNui".
 
 Bridge.Hud = Bridge.create("kt_hud")
 Bridge.register("kt_hud", Bridge.Hud)
 
-local hudActive    = false
-local hudThread    = false
-local UPDATE_DELAY = 500 -- ms entre chaque update
+local hudActive = false
+local hudThread = false
+local UPDATE_DELAY = 500
 
 -- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- NORMALISATION DES VALEURS
+-- NORMALISATION
 -- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
--- FiveM : health 0 = mort, 100 = 0 HP joueur, 200 = 100 HP joueur
--- On normalise vers 0-100 pour le HUD
-local function normalizeHealth(rawHealth)
-    if rawHealth <= 100 then return 0 end
-    return math.floor(((rawHealth - 100) / 100) * 100)
+local function normalizeHealth(raw)
+    if raw <= 100 then return 0 end
+    return math.floor(((raw - 100) / 100) * 100)
 end
 
--- Armor : déjà en 0-100
-local function normalizeArmor(rawArmor)
-    return math.max(0, math.min(100, math.floor(rawArmor)))
+local function normalizeArmor(raw)
+    return math.max(0, math.min(100, math.floor(raw)))
 end
 
--- Stamina : 0.0-1.0 → 0-100
-local function normalizeStamina(rawStamina)
-    return math.floor((1.0 - rawStamina) * 100)
+local function normalizeStamina(raw)
+    return math.floor((1.0 - raw) * 100)
 end
 
 -- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- COLLECTE DES DONNÉES
+-- COLLECTE
 -- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 local function collectHudData()
@@ -40,35 +38,47 @@ local function collectHudData()
     local vehicle = GetVehiclePedIsIn(ped, false)
     local inVeh   = DoesEntityExist(vehicle) and vehicle ~= 0
 
-    local data = {
-        -- Joueur
-        health   = normalizeHealth(GetEntityHealth(ped)),
-        armor    = normalizeArmor(GetPedArmour(ped)),
-        stamina  = normalizeStamina(GetPlayerStamina(PlayerId())),
-        isDead   = IsEntityDead(ped),
+    local ps     = LocalPlayer.state
+    local hunger = ps.hunger or 100
+    local thirst = ps.thirst or 100
+    local stress = ps.stress or 0
 
-        -- Véhicule
-        inVehicle     = inVeh,
-        speed         = inVeh and math.floor(GetEntitySpeed(vehicle) * 3.6) or 0,  -- km/h
-        fuel          = inVeh and math.floor(GetVehicleFuelLevel(vehicle)) or 0,
-        engineHealth  = inVeh and math.floor(GetVehicleEngineHealth(vehicle) / 10) or 0,
-        seatbelt      = false, -- à implémenter si besoin
+    return {
+        health  = normalizeHealth(GetEntityHealth(ped)),
+        armor   = normalizeArmor(GetPedArmour(ped)),
+        stamina = normalizeStamina(GetPlayerStamina(PlayerId())),
+        hunger  = math.max(0, math.min(100, math.floor(hunger))),
+        thirst  = math.max(0, math.min(100, math.floor(thirst))),
+        stress  = math.max(0, math.min(100, math.floor(stress))),
+        isDead  = IsEntityDead(ped),
 
-        -- Personnage actif
-        character = Client.currentCharacter and {
-            firstname = Client.currentCharacter.firstname,
-            lastname  = Client.currentCharacter.lastname,
-            job       = Client.currentCharacter.job or "unemployed",
-            job_grade = Client.currentCharacter.job_grade or 0,
-        } or nil,
+        inVehicle    = inVeh,
+        speed        = inVeh and math.floor(GetEntitySpeed(vehicle) * 3.6) or 0,
+        fuel         = inVeh and math.floor(GetVehicleFuelLevel(vehicle))  or 0,
+        rpm          = inVeh and math.floor((GetVehicleCurrentRpm(vehicle) or 0) * 100) / 100 or 0,
+        gear         = inVeh and GetVehicleCurrentGear(vehicle) or 0,
+        engineHealth = inVeh and math.floor(GetVehicleEngineHealth(vehicle)) or 0,
     }
-
-    return data
 end
 
 -- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- ENVOI AU HUD
+-- ENVOI — délégué à kt_hud via event local
+--
+-- POURQUOI :
+--   SendNUIMessage() n'est valable QUE dans la ressource qui déclare
+--   ui_page dans son fxmanifest.lua. Depuis "union", appeler
+--   SendNUIMessage envoie à la frame NUI de "union" (qui n'existe pas)
+--   → erreur "resource union has no UI frame".
+--
+-- SOLUTION :
+--   On déclenche un event local (même client, zéro latence réseau).
+--   kt_hud/client/main.lua écoute "kt_hud:sendNui" et fait lui-même
+--   le SendNUIMessage dans son propre contexte → ça fonctionne.
 -- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+local function sendToNui(action, data)
+    TriggerEvent("kt_hud:sendNui", action, data)
+end
 
 function Bridge.Hud.update(data)
     if not Bridge.Hud:isAvailable() then return end
@@ -76,33 +86,45 @@ function Bridge.Hud.update(data)
     data = data or collectHudData()
 
     local ok, err = pcall(function()
-        -- Adapter selon l'API réelle de kt_hud
-        -- Option A : export
-        exports["kt_hud"]:Update(data)
-        -- Option B : NUI message direct (décommenter si kt_hud utilise SendNUIMessage)
-        -- SendNUIMessage({ action = "updateHud", data = data })
+        sendToNui("updateHud", {
+            health  = data.health,
+            armor   = data.armor,
+            stamina = data.stamina,
+            hunger  = data.hunger,
+            thirst  = data.thirst,
+            stress  = data.stress,
+            isDead  = data.isDead,
+        })
+        sendToNui("updateVehicle", {
+            inVehicle    = data.inVehicle,
+            speed        = data.speed,
+            fuel         = data.fuel,
+            rpm          = data.rpm,
+            gear         = data.gear,
+            engineHealth = data.engineHealth,
+        })
     end)
 
     if not ok then
-        print(("^1[BRIDGE:kt_hud] Update erreur : %s^7"):format(tostring(err)))
+        print(("^1[BRIDGE:kt_hud] update erreur : %s^7"):format(tostring(err)))
     end
 end
 
 function Bridge.Hud.show()
     if not Bridge.Hud:isAvailable() then return end
-    pcall(function() exports["kt_hud"]:Show() end)
+    sendToNui("setVisible", { visible = true })
     hudActive = true
     Bridge.Hud._startThread()
 end
 
 function Bridge.Hud.hide()
     if not Bridge.Hud:isAvailable() then return end
-    pcall(function() exports["kt_hud"]:Hide() end)
+    sendToNui("setVisible", { visible = false })
     hudActive = false
 end
 
 -- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- THREAD DE MISE À JOUR
+-- THREAD
 -- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 function Bridge.Hud._startThread()
@@ -121,25 +143,35 @@ function Bridge.Hud._startThread()
 end
 
 -- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- LIAISON AUX EVENTS UNION
+-- EVENTS UNION
 -- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
--- Affiche le HUD dès que le joueur est spawné
-RegisterNetEvent("union:player:spawned", function(character)
-    Wait(500) -- laisse le spawn se terminer
+RegisterNetEvent("union:player:spawned", function()
+    Wait(500)
     Bridge.Hud.show()
 end)
 
--- Cache le HUD quand le personnage est déchargé (déconnexion, sélection)
 AddEventHandler("union:character:unloaded", function()
     Bridge.Hud.hide()
 end)
 
--- Mise à jour immédiate si le job change
 RegisterNetEvent("union:job:updated", function(job, grade)
     if Client.currentCharacter then
         Client.currentCharacter.job       = job
         Client.currentCharacter.job_grade = grade
         Bridge.Hud.update()
+    end
+end)
+
+AddEventHandler("onResourceStart", function(r)
+    if r == "kt_hud" and hudActive then
+        Wait(300)
+        Bridge.Hud.show()
+    end
+end)
+
+AddEventHandler("onResourceStop", function(r)
+    if r == "kt_hud" then
+        hudActive = false
     end
 end)
