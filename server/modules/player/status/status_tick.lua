@@ -28,10 +28,9 @@ local function applyDamage(src, status)
     local ped = GetPlayerPed(src)
     if not ped or ped == 0 then return end
 
-    -- Ne pas tuer en dessous du seuil GTA (100 = 0 HP joueur)
     local health = GetEntityHealth(ped)
     if health > 101 then
-        ApplyDamageToPed(ped, StatusConfig.effects.damageAmount, false)
+        SetEntityHealth(ped, health - StatusConfig.effects.damageAmount)
     end
 end
 

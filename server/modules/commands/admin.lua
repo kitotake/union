@@ -1,10 +1,17 @@
 -- server/modules/commands/admin.lua
 -- FIX #12 : suppression de la commande vide RegisterCommand("", ...) à la fin du fichier.
 
+-- Remplace
 local ADMIN_ACE = "admin"
-
 local function hasPerm(src)
     return src == 0 or IsPlayerAceAllowed(src, ADMIN_ACE)
+end
+
+-- Par
+local function hasPerm(src)
+    if src == 0 then return true end
+    local player = PlayerManager.get(src)
+    return player and player:hasPermission("admin.healrevive")
 end
 
 local function notify(src, msg)
