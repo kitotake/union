@@ -1,9 +1,7 @@
 -- server/modules/character/main.lua
--- FIX #10 : OfflinePed.remove() retiré de Character.select.
---            La suppression du ped offline se fait UNIQUEMENT dans
---            union:spawn:confirm (spawn/handler.lua), après confirmation
---            réelle du client. L'appel ici était prématuré : si le spawn
---            échouait côté client, le ped offline était déjà supprimé.
+-- FIX #3 : callback(true, selected) appelé AVANT TriggerClientEvent("union:spawn:apply")
+--           pour garantir que player.currentCharacter est défini avant que le client
+--           ne confirme le spawn via union:spawn:confirm
 
 Character        = {}
 Character.logger = Logger:child("CHARACTER")
@@ -59,9 +57,12 @@ function Character.create(player, data, callback)
     local firstname   = Utils.safeString(data.firstname, 50)
     local lastname    = Utils.safeString(data.lastname,  50)
     local dateofbirth = Utils.safeString(data.dateofbirth)
-    local gender      = data.gender:lower() == "f" and "f" or "m"
-    local model       = gender == "f" and Config.spawn.femaleModel or Config.spawn.defaultModel
-    local uniqueId    = ServerUtils.generateUniqueId(12)
+
+    -- FIX : normaliser le genre vers 'm'/'f' pour la BDD
+    local genderRaw = data.gender or "mp_m_freemode_01"
+    local gender    = (genderRaw == "f" or genderRaw == "mp_f_freemode_01") and "f" or "m"
+    local model     = gender == "f" and Config.spawn.femaleModel or Config.spawn.defaultModel
+    local uniqueId  = ServerUtils.generateUniqueId(12)
 
     local defPos = Config.spawn.defaultPosition
 
@@ -119,6 +120,7 @@ function Character.select(player, characterId, callback)
         return callback and callback(false, nil)
     end
 
+    -- FIX #3 : mettre à jour player.currentCharacter AVANT d'envoyer spawn:apply
     player.currentCharacter = selected
     Character.logger:info(
         ("Personnage sélectionné pour %s : %s %s"):format(
@@ -158,12 +160,11 @@ function Character.select(player, characterId, callback)
         function(appearance)
             applySkinData(charData, appearance)
 
-            -- FIX #10 : OfflinePed.remove() RETIRÉ ICI.
-            -- La suppression est gérée dans spawn/handler.lua → union:spawn:confirm
-            -- après confirmation réelle du spawn côté client.
+            -- FIX #3 : callback AVANT TriggerClientEvent pour garantir
+            -- que player.currentCharacter est à jour avant union:spawn:confirm
+            if callback then callback(true, selected) end
 
             TriggerClientEvent("union:spawn:apply", player.source, charData)
-            if callback then callback(true, selected) end
         end
     )
 end

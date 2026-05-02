@@ -1,9 +1,7 @@
 -- server/modules/spawn/main.lua
--- FIX #1 : les handlers union:spawn:requestInitial, requestRespawn, confirm et error
---           étaient dupliqués ici ET dans handler.lua.
---           Ce fichier ne contient plus que les helpers — toute la logique
---           d'events est dans handler.lua pour éviter que le second handler
---           écrase le premier (et casse le redirect vers la sélection de perso).
+-- FIX #12 : suppression des appels vers SpawnHandler.removeCharacterState()
+--           et SpawnHandler.getCharacterModel() qui n'existent pas dans handler.lua
+-- Ce fichier ne contient que des helpers — toute la logique est dans handler.lua
 
 Spawn        = {}
 Spawn.logger = Logger:child("SPAWN")
@@ -20,15 +18,7 @@ function Spawn.applyToPlayer(player, characterData)
     return SpawnHandler.applyCharacter(player, characterData)
 end
 
-function Spawn.removeState(player)
-    if player then
-        SpawnHandler.removeCharacterState(player)
-    end
-end
-
-function Spawn.getModel(player)
-    if not player then return nil end
-    return SpawnHandler.getCharacterModel(player)
-end
+-- FIX #12 : removeState et getModel supprimés — fonctions inexistantes dans handler.lua
+-- Si ces fonctionnalités sont nécessaires à l'avenir, les implémenter dans handler.lua d'abord.
 
 return Spawn

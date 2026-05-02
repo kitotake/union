@@ -1,21 +1,22 @@
 -- server/modules/permission/main.lua
+-- FIX #8 : ajout de "admin.vehicle" dans les groupes admin/founder
+
 PermissionSystem = {}
 PermissionSystem.logger = Logger:child("PERMISSION")
 PermissionSystem.cache = {}
 
--- Permission groups with their permissions
 PermissionSystem.groups = {
     user = {},
     moderator = {
         "admin.healrevive",
         "admin.kick",
-        "character.delete",
     },
     admin = {
         "admin.all",
         "admin.healrevive",
         "admin.kick",
         "admin.ban",
+        "admin.vehicle",   -- FIX #8
         "character.delete",
         "job.set",
     },
@@ -28,7 +29,6 @@ function PermissionSystem.hasPermission(source, permission)
     local player = PlayerManager.get(source)
     if not player then return false end
 
-    -- Founder bypass total
     if player.group == "founder" then return true end
 
     local groupPerms = PermissionSystem.groups[player.group] or {}
@@ -55,12 +55,12 @@ end
 function PermissionSystem.setPlayerGroup(source, group)
     local player = PlayerManager.get(source)
     if not player then return false end
-    
+
     if not PermissionSystem.groups[group] then
         PermissionSystem.logger:warn("Invalid group: " .. group)
         return false
     end
-    
+
     Database.execute(
         "UPDATE users SET `group` = ? WHERE id = ?",
         {group, player.userId},
@@ -72,7 +72,7 @@ function PermissionSystem.setPlayerGroup(source, group)
             end
         end
     )
-    
+
     return false
 end
 
@@ -80,14 +80,14 @@ function PermissionSystem.addPermissionToGroup(group, permission)
     if not PermissionSystem.groups[group] then
         PermissionSystem.groups[group] = {}
     end
-    
+
     table.insert(PermissionSystem.groups[group], permission)
     PermissionSystem.logger:info("Permission added to group " .. group .. ": " .. permission)
 end
 
 function PermissionSystem.removePermissionFromGroup(group, permission)
     if not PermissionSystem.groups[group] then return end
-    
+
     for i, perm in ipairs(PermissionSystem.groups[group]) do
         if perm == permission then
             table.remove(PermissionSystem.groups[group], i)
@@ -97,17 +97,16 @@ function PermissionSystem.removePermissionFromGroup(group, permission)
     end
 end
 
--- Network event for permission check
 RegisterNetEvent("union:permission:check", function(permission, requestId)
-    local source = source
-    local hasPermission = PermissionSystem.hasPermission(source, permission)
-    TriggerClientEvent("union:permission:checkResponse", source, requestId, hasPermission)
+    local src           = source
+    local hasPermission = PermissionSystem.hasPermission(src, permission)
+    TriggerClientEvent("union:permission:checkResponse", src, requestId, hasPermission)
 end)
 
 RegisterCommand("mygroup", function(source)
     local player = PlayerManager.get(source)
     if not player then return end
-    
+
     TriggerClientEvent("chat:addMessage", source, {
         color = {100, 255, 100},
         multiline = true,

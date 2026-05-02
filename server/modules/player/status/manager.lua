@@ -1,10 +1,10 @@
 -- server/modules/player/status/manager.lua
+-- FIX #4 : clamp() définie en LOCAL pour éviter la pollution de l'espace global Lua
 -- VERSION PRODUCTION : 100% server-authoritative
--- Le client ne calcule plus rien, il reçoit et affiche uniquement.
 
 StatusManager        = {}
 StatusManager.logger = Logger:child("STATUS:MANAGER")
-StatusManager.cache  = {} -- { [src] = { hunger, thirst, stress, _dirty, _uniqueId } }
+StatusManager.cache  = {}
 
 -- ────────────────────────────────────────────────────────────────────────────
 -- CONSTANTES
@@ -16,7 +16,14 @@ local ALLOWED_STATS = {
     stress = true,
 }
 
--- Whitelist des actions acceptées depuis le client + effets appliqués côté serveur
+-- FIX #4 : local function (était global, polluait l'espace Lua)
+local function clamp(value)
+    return math.max(StatusConfig.min, math.min(StatusConfig.max, math.floor(value + 0.5)))
+end
+
+-- Exposer clamp pour status_tick.lua (même scope de chargement)
+StatusManager.clamp = clamp
+
 local ACTION_EFFECTS = {
     eat       = function(s) s.hunger = clamp(s.hunger + 25); s.stress = clamp(s.stress - 5)  end,
     drink     = function(s) s.thirst = clamp(s.thirst + 25) end,
@@ -25,8 +32,7 @@ local ACTION_EFFECTS = {
     fistfight = function(s) s.stress = clamp(s.stress + StatusConfig.stressGain.fistFight)   end,
 }
 
--- Anti-spam par joueur pour les actions
-local actionCooldowns = {} -- { [src] = { [action] = lastTimestamp } }
+local actionCooldowns = {}
 
 local ACTION_COOLDOWN_MS = {
     eat       = 1000,
@@ -40,16 +46,12 @@ local ACTION_COOLDOWN_MS = {
 -- HELPERS
 -- ────────────────────────────────────────────────────────────────────────────
 
-function clamp(value)
-    return math.max(StatusConfig.min, math.min(StatusConfig.max, math.floor(value + 0.5)))
-end
-
 local function defaultStatus()
     return {
-        hunger   = StatusConfig.defaults.hunger,
-        thirst   = StatusConfig.defaults.thirst,
-        stress   = StatusConfig.defaults.stress,
-        _dirty   = false,
+        hunger    = StatusConfig.defaults.hunger,
+        thirst    = StatusConfig.defaults.thirst,
+        stress    = StatusConfig.defaults.stress,
+        _dirty    = false,
         _uniqueId = nil,
     }
 end
@@ -58,7 +60,7 @@ local function isActionOnCooldown(src, action)
     local now = GetGameTimer()
     actionCooldowns[src] = actionCooldowns[src] or {}
 
-    local last    = actionCooldowns[src][action] or 0
+    local last     = actionCooldowns[src][action] or 0
     local cooldown = ACTION_COOLDOWN_MS[action]   or 1000
 
     if now - last < cooldown then return true end
@@ -88,8 +90,8 @@ function StatusManager.load(src, uniqueId, callback)
                     _uniqueId = uniqueId,
                 }
             else
-                status          = defaultStatus()
-                status._uniqueId = uniqueId
+                status            = defaultStatus()
+                status._uniqueId  = uniqueId
             end
 
             StatusManager.cache[src] = status
@@ -101,7 +103,6 @@ function StatusManager.load(src, uniqueId, callback)
 end
 
 function StatusManager.save(src, status)
-    -- Guard : ne sauvegarde que si dirty et données valides
     if not status or not status._dirty or not status._uniqueId then return end
 
     local player = PlayerManager.get(src)
@@ -128,7 +129,7 @@ function StatusManager.save(src, status)
 end
 
 -- ────────────────────────────────────────────────────────────────────────────
--- GETTERS / SETTERS (API interne + exports)
+-- GETTERS / SETTERS
 -- ────────────────────────────────────────────────────────────────────────────
 
 function StatusManager.get(src)
@@ -147,7 +148,6 @@ function StatusManager.set(src, stat, value)
     status[stat]  = clamp(value)
     status._dirty = true
 
-    -- Notifie le client de la mise à jour d'une stat précise
     TriggerClientEvent("union:status:update", src, stat, status[stat])
 end
 
@@ -159,26 +159,20 @@ function StatusManager.add(src, stat, delta)
 end
 
 function StatusManager.cleanup(src)
-    StatusManager.cache[src]   = nil
-    actionCooldowns[src]       = nil
+    StatusManager.cache[src]  = nil
+    actionCooldowns[src]      = nil
 end
 
 -- ────────────────────────────────────────────────────────────────────────────
--- ACTIONS ENVOYÉES PAR LE CLIENT (sécurisées)
+-- ACTIONS ENVOYÉES PAR LE CLIENT
 -- ────────────────────────────────────────────────────────────────────────────
 
 RegisterNetEvent("union:status:action", function(action)
     local src    = source
     local effect = ACTION_EFFECTS[action]
 
-    if not effect then
-        -- Action inconnue → ignore silencieusement (ne pas log pour éviter spam)
-        return
-    end
-
-    if isActionOnCooldown(src, action) then
-        return -- spam silencieux
-    end
+    if not effect then return end
+    if isActionOnCooldown(src, action) then return end
 
     local status = StatusManager.cache[src]
     if not status then return end
@@ -186,8 +180,6 @@ RegisterNetEvent("union:status:action", function(action)
     effect(status)
     status._dirty = true
 
-    -- Pas de TriggerClientEvent ici : le tick serveur synchronisera
-    -- sauf pour les actions immédiates (eat/drink) où le feedback est attendu
     if action == "eat" or action == "drink" then
         TriggerClientEvent("union:status:update", src, "hunger", status.hunger)
         TriggerClientEvent("union:status:update", src, "thirst", status.thirst)
@@ -199,12 +191,10 @@ end)
 -- ÉVÉNEMENTS UNION
 -- ────────────────────────────────────────────────────────────────────────────
 
--- Chargement au spawn
 AddEventHandler("union:player:spawned", function(src, character)
     if not src or not character or not character.unique_id then return end
 
     StatusManager.load(src, character.unique_id, function(status)
-        -- Envoie les valeurs initiales au client
         TriggerClientEvent("union:status:init", src, {
             hunger = status.hunger,
             thirst = status.thirst,
@@ -213,13 +203,12 @@ AddEventHandler("union:player:spawned", function(src, character)
     end)
 end)
 
--- Sauvegarde à la déconnexion
 AddEventHandler("playerDropped", function()
     local src    = source
     local status = StatusManager.cache[src]
 
     if status then
-        status._dirty = true -- force save finale
+        status._dirty = true
         StatusManager.save(src, status)
     end
 
@@ -227,7 +216,7 @@ AddEventHandler("playerDropped", function()
 end)
 
 -- ────────────────────────────────────────────────────────────────────────────
--- EXPORTS PUBLICS (compatibilité avec le code existant)
+-- EXPORTS PUBLICS
 -- ────────────────────────────────────────────────────────────────────────────
 
 exports("GetPlayerStatus", function(src) return StatusManager.get(src) end)

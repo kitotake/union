@@ -24,7 +24,6 @@ Framework roleplay développé pour FiveM (GTA V), construit avec **oxmysql**, e
 
 ## 🧩 Dépendances
 
-- [ox_core](https://overextended.dev/)
 - [kt_inventory](https://overextended.dev/)
 - [oxmysql](https://github.com/overextended/oxmysql)
 

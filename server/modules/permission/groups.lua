@@ -1,8 +1,10 @@
 -- server/modules/permission/groups.lua
+-- FIX #8 : ajout de "admin.vehicle" dans les groupes admin/founder
+--           pour les nouvelles vérifications granulaires dans commands/admin.lua
+
 PermissionGroups = {}
 PermissionGroups.logger = Logger:child("PERMISSION:GROUPS")
 
--- Default permission groups
 PermissionGroups.defaults = {
     founder = {
         displayName = "Founder",
@@ -16,6 +18,7 @@ PermissionGroups.defaults = {
             "admin.kick",
             "admin.ban",
             "admin.healrevive",
+            "admin.vehicle",   -- FIX #8 : permission véhicules admin
             "character.delete",
             "job.set",
         }
@@ -26,7 +29,7 @@ PermissionGroups.defaults = {
         permissions = {
             "admin.healrevive",
             "admin.kick",
-            "character.delete",
+            -- FIX #8 : les modérateurs n'ont PAS admin.vehicle ni admin.all
         }
     },
     user = {

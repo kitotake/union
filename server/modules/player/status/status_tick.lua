@@ -1,23 +1,21 @@
 -- server/modules/player/status/status_tick.lua
+-- FIX #5 : utilise StatusManager.clamp au lieu de dupliquer clampLocal
 -- VERSION PRODUCTION : tick serveur unique et autoritaire
--- Plus de double decay (client + serveur), plus de sync depuis le client.
 
 StatusTick = {}
 
 -- ────────────────────────────────────────────────────────────────────────────
 -- HELPERS
+-- FIX #5 : réutilise StatusManager.clamp (défini dans manager.lua, chargé avant)
 -- ────────────────────────────────────────────────────────────────────────────
 
-local function clampLocal(value)
-    return math.max(StatusConfig.min, math.min(StatusConfig.max, value))
-end
-
 local function applyDecay(status)
-    status.hunger = clampLocal(status.hunger - StatusConfig.decay.hunger)
-    status.thirst = clampLocal(status.thirst - StatusConfig.decay.thirst)
+    local clamp = StatusManager.clamp
+    status.hunger = clamp(status.hunger - StatusConfig.decay.hunger)
+    status.thirst = clamp(status.thirst - StatusConfig.decay.thirst)
 
     if status.stress > 0 then
-        status.stress = clampLocal(status.stress - StatusConfig.stressDecay)
+        status.stress = clamp(status.stress - StatusConfig.stressDecay)
     end
 end
 
@@ -35,12 +33,10 @@ local function applyDamage(src, status)
 end
 
 -- ────────────────────────────────────────────────────────────────────────────
--- TICK PRINCIPAL — decay + dégâts + sync client
--- Anti-spike : Wait(10) entre chaque joueur pour ne pas spiker la frame
+-- TICK PRINCIPAL
 -- ────────────────────────────────────────────────────────────────────────────
 
 CreateThread(function()
-    -- Attendre que le serveur soit prêt
     while not Server.isReady do Wait(1000) end
 
     StatusTick.logger = Logger:child("STATUS:TICK")
@@ -55,16 +51,10 @@ CreateThread(function()
             local status = StatusManager.get(src)
 
             if status and player.currentCharacter then
-                -- 1. Decay
                 applyDecay(status)
-
-                -- 2. Dégâts si stat critique
                 applyDamage(src, status)
-
-                -- 3. Marquer dirty pour save loop
                 status._dirty = true
 
-                -- 4. Sync vers le client (updateAll = full refresh)
                 TriggerClientEvent("union:status:updateAll", src, {
                     hunger = status.hunger,
                     thirst = status.thirst,
@@ -72,15 +62,13 @@ CreateThread(function()
                 })
             end
 
-            -- Anti-spike : cède la main entre chaque joueur
             Wait(10)
         end
     end
 end)
 
 -- ────────────────────────────────────────────────────────────────────────────
--- SAVE LOOP — sauvegarde périodique uniquement les entrées dirty
--- Séparée du tick pour ne pas coupler decay et I/O DB
+-- SAVE LOOP
 -- ────────────────────────────────────────────────────────────────────────────
 
 CreateThread(function()
@@ -99,7 +87,6 @@ CreateThread(function()
                 saved = saved + 1
             end
 
-            -- Anti-spike DB : pause entre chaque save
             Wait(25)
         end
 
