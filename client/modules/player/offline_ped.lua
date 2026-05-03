@@ -1,6 +1,13 @@
--- fixes/client/modules/player/offline_ped.lua
--- VERSION CORRIGÉE : supprime tout le code commenté de l'ancienne version
--- Logique propre et fonctionnelle uniquement
+-- client/modules/player/offline_ped.lua
+-- FIXES:
+--   #1 : Suppression des natives réseau serveur-only appelées côté client
+--        (NetworkRegisterEntityAsNetworked, SetNetworkIdExistsOnAllMachines,
+--         SetNetworkIdCanMigrate) → ces appels crashaient silencieusement
+--         et empêchaient le ped d'être créé correctement.
+--   #2 : Remplacement de TaskStartScenarioInPlace par TaskPlayAnim
+--        (le scénario SUNBATHE_BACK n'est pas compatible avec les peds réseau).
+--   #3 : Réception du dump initial au spawn pour voir les peds des joueurs
+--        déconnectés avant notre connexion.
 
 OfflinePeds        = {}
 OfflinePeds.logger = Logger:child("OFFLINE_PED")
@@ -25,11 +32,23 @@ local function loadModel(modelHash)
     return true
 end
 
+-- FIX #2 : animation allongé au sol valide pour peds non-réseau
+local function applyDeadAnim(ped)
+    local dict = "dead"
+    RequestAnimDict(dict)
+    local t = GetGameTimer()
+    while not HasAnimDictLoaded(dict) do
+        Wait(50)
+        if GetGameTimer() - t > 3000 then return end
+    end
+    TaskPlayAnim(ped, dict, "dead_d", 8.0, -8.0, -1, 1, 0, false, false, false)
+end
+
 -- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 -- CRÉER UN PED OFFLINE
 -- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-RegisterNetEvent("union:offlineped:create", function(data)
+local function spawnOfflinePed(data)
     if not data or not data.uniqueId then return end
 
     -- Ne pas spawner son propre ped offline
@@ -50,8 +69,8 @@ RegisterNetEvent("union:offlineped:create", function(data)
         data.y,
         data.z - 1.0,
         data.heading or 0.0,
-        true,
-        true
+        false,  -- FIX #1 : false = ped local uniquement, pas réseau
+        false
     )
 
     SetModelAsNoLongerNeeded(modelHash)
@@ -61,26 +80,43 @@ RegisterNetEvent("union:offlineped:create", function(data)
         return
     end
 
-    -- Configuration réseau
-    NetworkRegisterEntityAsNetworked(ped)
-    local netId = NetworkGetNetworkIdFromEntity(ped)
-    SetNetworkIdExistsOnAllMachines(netId, true)
-    SetNetworkIdCanMigrate(netId, true)
+    -- FIX #1 : suppression des natives serveur-only
+    -- NetworkRegisterEntityAsNetworked(ped)    ← SERVER ONLY, retiré
+    -- SetNetworkIdExistsOnAllMachines(...)     ← SERVER ONLY, retiré
+    -- SetNetworkIdCanMigrate(...)              ← SERVER ONLY, retiré
 
     -- Configuration ped
     SetEntityInvincible(ped, true)
     SetBlockingOfNonTemporaryEvents(ped, true)
     FreezeEntityPosition(ped, true)
+    SetEntityVisible(ped, true, false)
 
-    -- Animation couché
-    TaskStartScenarioInPlace(ped, "WORLD_HUMAN_SUNBATHE_BACK", 0, true)
+    -- FIX #2 : animation correcte pour un ped local
+    applyDeadAnim(ped)
 
     OfflinePeds.list[data.uniqueId] = ped
 
-    -- Sync netId au serveur
-    TriggerServerEvent("union:offlineped:spawned", data.uniqueId, netId)
+    -- FIX #1 : suppression de TriggerServerEvent("union:offlineped:spawned")
+    -- Le netId n'existe plus (ped local), plus besoin de le notifier au serveur.
 
     OfflinePeds.logger:info("Ped offline créé pour uid=" .. data.uniqueId)
+end
+
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- EVENTS RÉSEAU
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+RegisterNetEvent("union:offlineped:create", function(data)
+    spawnOfflinePed(data)
+end)
+
+-- FIX #3 : réception du dump initial (joueurs déconnectés avant notre arrivée)
+RegisterNetEvent("union:offlineped:loadAll", function(peds)
+    if type(peds) ~= "table" then return end
+    for _, data in ipairs(peds) do
+        spawnOfflinePed(data)
+    end
+    OfflinePeds.logger:info(("Chargement initial : %d ped(s) offline"):format(#peds))
 end)
 
 -- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -101,9 +137,7 @@ RegisterNetEvent("union:offlineped:remove", function(uniqueId)
 end)
 
 -- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- NETTOYAGE AU CHARGEMENT DE PERSONNAGE
--- Supprime le ped offline de notre propre personnage
--- si un autre client l'avait spawné entre-temps
+-- NETTOYAGE AU SPAWN DU PERSONNAGE ACTIF
 -- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 RegisterNetEvent("union:player:spawned", function(character)

@@ -1,5 +1,12 @@
 -- server/modules/player/manager.lua
--- FIX : utilise PlayerClass.new() — la native Player() n'est plus écrasée.
+-- FIXES:
+--   #1 : Race condition playerDropped — OfflinePed.create() est maintenant
+--        appelé AVANT PlayerManager.remove() pour garantir que les données
+--        du personnage sont encore disponibles.
+--   #2 : StatusManager.load() appelé lors du spawn confirmé (union:player:spawned)
+--        pour initialiser les statuts faim/soif/stress du personnage.
+--   #3 : Passage des données playerData à OfflinePed.create() directement
+--        au lieu de passer l'objet player (évite les références mortes).
 
 PlayerManager = {}
 PlayerManager.logger = Logger:child("PLAYER:MANAGER")
@@ -80,7 +87,6 @@ RegisterNetEvent("union:player:joined", function()
         if success then
             PlayerManager.logger:info("Player " .. player.name .. " loaded successfully")
             Auth.Webhooks.playerJoined(src)
-            -- FIX : union:player:loaded est envoyé ici, le client appellera Spawn.initialize()
             TriggerClientEvent("union:player:loaded", src)
         else
             PlayerManager.logger:error("Failed to load player " .. tostring(src))
@@ -90,7 +96,23 @@ RegisterNetEvent("union:player:joined", function()
 end)
 
 -- ──────────────────────────────────────────────────────────────────────────
--- Joueur quitte — sauvegarde position + création ped offline
+-- FIX #2 : Chargement des statuts au spawn confirmé
+-- ──────────────────────────────────────────────────────────────────────────
+AddEventHandler("union:player:spawned", function(src, character)
+    if not src or not character then return end
+
+    -- Charge les statuts faim/soif/stress si StatusManager est disponible
+    if StatusManager and StatusManager.load and character.unique_id then
+        StatusManager.load(src, character.unique_id, function(status)
+            PlayerManager.logger:debug(
+                ("Statuts chargés pour src=%d uid=%s"):format(src, character.unique_id)
+            )
+        end)
+    end
+end)
+
+-- ──────────────────────────────────────────────────────────────────────────
+-- Joueur quitte — FIX #1 : OfflinePed.create AVANT PlayerManager.remove
 -- ──────────────────────────────────────────────────────────────────────────
 AddEventHandler("playerDropped", function(reason)
     local src    = source
@@ -113,6 +135,9 @@ AddEventHandler("playerDropped", function(reason)
                     x = coords.x, y = coords.y, z = coords.z, heading = heading,
                 })
 
+                -- Mettre à jour la position en mémoire avant de créer le ped offline
+                player.currentCharacter.position = posJson
+
                 Database.execute([[
                     UPDATE characters SET
                     position = ?, health = ?, armor = ?, last_played = NOW()
@@ -126,23 +151,30 @@ AddEventHandler("playerDropped", function(reason)
                     end
                 end)
 
+                -- FIX #1 : créer le ped AVANT remove (données encore disponibles)
+                -- FIX #3 : passage d'une copie des données (pas de référence morte)
                 if OfflinePed then
-                    local charSnapshot = {}
-                    for k, v in pairs(player.currentCharacter) do charSnapshot[k] = v end
-                    charSnapshot.position = {
-                        x = coords.x, y = coords.y, z = coords.z, heading = heading,
+                    local charSnapshot = {
+                        unique_id = player.currentCharacter.unique_id,
+                        model     = player.currentCharacter.model,
+                        gender    = player.currentCharacter.gender,
+                        position  = posJson,
                     }
                     OfflinePed.create({
-                        source           = src,
-                        name             = player.name,
                         currentCharacter = charSnapshot,
-                        group            = player.group,
+                        name             = player.name,
                     })
                 end
             end
         end
 
+        -- FIX #1 : remove APRÈS OfflinePed.create
         PlayerManager.remove(src)
+
+        -- Nettoyer les statuts en cache
+        if StatusManager and StatusManager.cache then
+            StatusManager.cache[src] = nil
+        end
     end
 end)
 

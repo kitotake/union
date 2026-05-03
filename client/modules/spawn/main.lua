@@ -1,14 +1,12 @@
--- fixes/client/modules/spawn/main.lua
--- VERSION CORRIGÉE : utilise Bridge.Character.applyAppearance()
--- au lieu d'appeler exports["kt_character"] directement
--- Plus aucun appel direct à un module externe dans ce fichier
+-- client/modules/spawn/main.lua
+-- FIXES:
+--   #1 : clearTimeout() n'existe pas en Lua FiveM (c'est du JS).
+--        Remplacé par un flag booléen + thread de timeout manuel.
+--   #2 : unique_id transmis dans union:spawn:confirm.
 
 Spawn = {}
 local logger = Logger:child("SPAWN")
 
--- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- SAFE PED
--- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 local function SafePed()
     local ped = PlayerPedId()
     SetEntityVisible(ped, true, false)
@@ -16,9 +14,6 @@ local function SafePed()
     return ped
 end
 
--- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- INIT
--- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 function Spawn.initialize()
     logger:info("Initializing spawn system")
     TriggerServerEvent("union:spawn:requestInitial")
@@ -29,10 +24,32 @@ function Spawn.respawn(model)
     TriggerServerEvent("union:spawn:requestRespawn", model)
 end
 
--- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- APPLY SPAWN
--- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-local spawnInProgress = false
+local spawnInProgress  = false
+local spawnTimeoutActive = false
+
+-- FIX #1 : reset du guard sans clearTimeout
+local function resetSpawnGuard()
+    spawnInProgress      = false
+    spawnTimeoutActive   = false
+end
+
+-- FIX #1 : timeout manuel via thread Lua
+local function startSpawnTimeout(seconds)
+    spawnTimeoutActive = true
+    CreateThread(function()
+        local limit = GetGameTimer() + (seconds * 1000)
+        while spawnTimeoutActive do
+            Wait(500)
+            if GetGameTimer() > limit then
+                if spawnInProgress then
+                    logger:warn("Spawn timeout (" .. seconds .. "s) — réinitialisation du guard")
+                    resetSpawnGuard()
+                end
+                return
+            end
+        end
+    end)
+end
 
 RegisterNetEvent("union:spawn:apply", function(characterData)
     if not characterData then
@@ -46,10 +63,13 @@ RegisterNetEvent("union:spawn:apply", function(characterData)
     end
     spawnInProgress = true
 
+    -- FIX #1 : timeout de sécurité 30s via thread Lua
+    startSpawnTimeout(30)
+
     local model = characterData.model
     if not model or model == "" then
         logger:error("model manquant dans characterData")
-        spawnInProgress = false
+        resetSpawnGuard()
         return
     end
 
@@ -63,7 +83,7 @@ RegisterNetEvent("union:spawn:apply", function(characterData)
         if not IsModelInCdimage(modelHash) or not IsModelValid(modelHash) then
             logger:error("Invalid model: " .. model)
             TriggerServerEvent("union:spawn:error", "MODEL_INVALID")
-            spawnInProgress = false
+            resetSpawnGuard()
             return
         end
 
@@ -74,7 +94,7 @@ RegisterNetEvent("union:spawn:apply", function(characterData)
             if GetGameTimer() > timeout then
                 logger:error("Timeout model: " .. model)
                 TriggerServerEvent("union:spawn:error", "MODEL_LOAD_FAILED")
-                spawnInProgress = false
+                resetSpawnGuard()
                 return
             end
         end
@@ -94,8 +114,6 @@ RegisterNetEvent("union:spawn:apply", function(characterData)
         local armor   = characterData.armor    or 0
 
         -- ── 4. APPARENCE via Bridge ───────────────────
-        -- CORRIGÉ : plus d'appel direct à exports["kt_character"]
-        -- Bridge.Character gère le fallback si kt_character est absent
         Bridge.Character.applyAppearance(characterData)
 
         -- ── 5. COLLISION + RESPAWN ───────────────────
@@ -132,9 +150,10 @@ RegisterNetEvent("union:spawn:apply", function(characterData)
         Client.currentCharacter = characterData
 
         logger:info("Character spawned successfully")
-        spawnInProgress = false
+        resetSpawnGuard()
 
         -- ── 9. SERVER CONFIRM ─────────────────────────
+        -- FIX #2 : unique_id transmis pour identification côté serveur
         TriggerServerEvent("union:spawn:confirm", characterData.unique_id)
 
         -- ── 10. EVENT LOCAL (HUD, Target, etc.) ───────
@@ -142,11 +161,8 @@ RegisterNetEvent("union:spawn:apply", function(characterData)
     end)
 end)
 
--- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- ERROR
--- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 RegisterNetEvent("union:spawn:error", function(errorType)
     logger:error("Spawn error: " .. tostring(errorType))
-    spawnInProgress = false
+    resetSpawnGuard()
     Spawn.respawn(Config.spawn.defaultModel)
 end)

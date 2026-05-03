@@ -1,4 +1,8 @@
 -- shared/utils.lua
+-- FIXES:
+--   #1 : Utils.hasPermission — appel corrigé de PermissionSystem.HasPermission
+--        (majuscule incorrecte) → PermissionSystem.hasPermission
+
 Utils = {}
 
 function Utils.log(tag, message, level)
@@ -44,7 +48,6 @@ function Utils.merge(target, source)
     return target
 end
 
--- ✅ AJOUT : manquait dans shared/utils.lua
 function Utils.validateDate(date)
     if not date then return false end
     local year, month, day = date:match("(%d+)-(%d+)-(%d+)")
@@ -56,9 +59,10 @@ function Utils.validateDate(date)
     return true
 end
 
+-- FIX #1 : correction de la casse (hasPermission, pas HasPermission)
 function Utils.hasPermission(permission)
     if IsDuplicityVersion() then
-        return PermissionSystem.HasPermission(source, permission)
+        return PermissionSystem.hasPermission(source, permission)
     else
         return false
     end

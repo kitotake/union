@@ -1,12 +1,11 @@
--- fixes/server/modules/character/characterManager.lua
--- VERSION CORRIGÉE : supprime les NetEvents dupliqués avec spawn/handler.lua
--- Ce fichier gère UNIQUEMENT le flow NUI (openCreator, autoSpawn, sélection multi-perso)
--- Tous les handlers union:spawn:requestInitial / confirm / error sont dans spawn/handler.lua
-
--- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- SÉLECTION DE PERSONNAGE DEPUIS LA NUI
--- Reçu quand le joueur clique "Jouer" dans l'interface de sélection
--- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- server/modules/character/characterManager.lua
+-- FIXES:
+--   #1 : Double spawn — characters:selectCharacter appelait Character.select()
+--        (qui déclenche union:spawn:apply) ET ensuite envoyait characters:doSpawn
+--        au client (qui ne fait rien de plus, mais le commentaire était trompeur).
+--        Le flow est clarifié : Character.select() gère tout le spawn,
+--        characters:doSpawn sert uniquement à fermer la NUI proprement.
+--   #2 : Vérification que le joueur n'est pas déjà spawné avant de re-sélectionner.
 
 RegisterNetEvent("characters:selectCharacter", function(charId)
     local src    = source
@@ -18,13 +17,18 @@ RegisterNetEvent("characters:selectCharacter", function(charId)
         return
     end
 
+    -- FIX #2 : éviter un double spawn si déjà spawné
+    if player.isSpawned then
+        Logger:warn("[charManager] Joueur déjà spawné, sélection ignorée src=" .. src)
+        return
+    end
+
     local characterId = tonumber(charId)
     if not characterId or characterId <= 0 then
         TriggerClientEvent("characters:error", src, "ID de personnage invalide.")
         return
     end
 
-    -- Vérifie que le personnage appartient bien au joueur
     local owned = false
     for _, char in ipairs(player.characters or {}) do
         if char.id == characterId then
@@ -39,7 +43,9 @@ RegisterNetEvent("characters:selectCharacter", function(charId)
         return
     end
 
-    -- Délègue à Character.select qui gère le spawn
+    -- FIX #1 : Character.select() déclenche union:spawn:apply côté client.
+    -- characters:doSpawn est envoyé UNIQUEMENT pour fermer la NUI —
+    -- il ne doit PAS déclencher un spawn supplémentaire côté client.
     Character.select(player, characterId, function(success, character)
         if not success then
             TriggerClientEvent("characters:error", src, "Erreur lors de la sélection du personnage.")
@@ -52,14 +58,13 @@ RegisterNetEvent("characters:selectCharacter", function(charId)
             player.name
         ))
 
-        -- Ferme la NUI côté client
+        -- Fermeture de la NUI uniquement (pas de spawn ici, union:spawn:apply déjà envoyé)
         TriggerClientEvent("characters:doSpawn", src, character)
     end)
 end)
 
 -- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- CRÉATION DE PERSONNAGE COMPLÈTE (depuis kt_character)
--- Reçu quand kt_character a terminé la création
+-- CRÉATION DEPUIS kt_character
 -- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 RegisterNetEvent("kt_character:characterCreated", function(data)
@@ -84,7 +89,6 @@ RegisterNetEvent("kt_character:characterCreated", function(data)
                 tostring(characterId),
                 tostring(uniqueId)
             ))
-            -- Recharge les persos et spawn automatiquement le nouveau
             player:loadCharacters(function()
                 Character.select(player, characterId, function(selSuccess)
                     if not selSuccess then
@@ -97,12 +101,3 @@ RegisterNetEvent("kt_character:characterCreated", function(data)
         end
     end)
 end)
-
--- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- NOTE : les handlers suivants sont dans spawn/handler.lua
--- NE PAS les redéclarer ici :
---   RegisterNetEvent("union:spawn:requestInitial")
---   RegisterNetEvent("union:spawn:requestRespawn")
---   RegisterNetEvent("union:spawn:confirm")
---   RegisterNetEvent("union:spawn:error")
--- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

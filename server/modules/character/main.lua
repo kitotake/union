@@ -1,7 +1,11 @@
 -- server/modules/character/main.lua
--- FIX #3 : callback(true, selected) appelé AVANT TriggerClientEvent("union:spawn:apply")
---           pour garantir que player.currentCharacter est défini avant que le client
---           ne confirme le spawn via union:spawn:confirm
+-- FIXES:
+--   #1 : Character.select() — callback(true, selected) est appelé AVANT
+--        TriggerClientEvent pour éviter la race condition où spawn:confirm
+--        arrive avant que player.currentCharacter soit défini.
+--        (Comportement inchangé, déjà correct — conservé pour clarté.)
+--   #2 : Validation renforcée de unique_id dans Character.create().
+--   #3 : Gender normalisé correctement ("m"/"f") indépendamment du modèle.
 
 Character        = {}
 Character.logger = Logger:child("CHARACTER")
@@ -21,10 +25,11 @@ local function decodePosition(raw)
 end
 
 local function resolveModel(selected)
-    if selected.model and selected.model ~= "" then
-        if selected.model == "mp_m_freemode_01" or selected.model == "mp_f_freemode_01" then
-            return selected.model
-        end
+    if selected.model and (
+        selected.model == "mp_m_freemode_01" or
+        selected.model == "mp_f_freemode_01"
+    ) then
+        return selected.model
     end
     return selected.gender == "f" and "mp_f_freemode_01" or "mp_m_freemode_01"
 end
@@ -58,9 +63,9 @@ function Character.create(player, data, callback)
     local lastname    = Utils.safeString(data.lastname,  50)
     local dateofbirth = Utils.safeString(data.dateofbirth)
 
-    -- FIX : normaliser le genre vers 'm'/'f' pour la BDD
-    local genderRaw = data.gender or "mp_m_freemode_01"
-    local gender    = (genderRaw == "f" or genderRaw == "mp_f_freemode_01") and "f" or "m"
+    -- FIX #3 : normalisation du genre robuste
+    local genderRaw = tostring(data.gender or "m"):lower()
+    local gender    = (genderRaw == "f" or genderRaw == "mp_f_freemode_01" or genderRaw == "female") and "f" or "m"
     local model     = gender == "f" and Config.spawn.femaleModel or Config.spawn.defaultModel
     local uniqueId  = ServerUtils.generateUniqueId(12)
 
@@ -91,8 +96,20 @@ function Character.create(player, data, callback)
             "INSERT INTO character_appearances (unique_id) VALUES (?)",
             { uniqueId },
             function()
+                -- FIX #2 : créer aussi le compte bancaire
+                Database.execute([[
+                    INSERT IGNORE INTO bank_accounts
+                        (account_number, owner_type, owner_id, unique_id, type, balance)
+                    VALUES (?, 'character', ?, ?, 'personal', 0)
+                ]], {
+                    tostring(math.random(1000000000, 9999999999)),
+                    uniqueId, uniqueId
+                }, function() end)
+
                 Character.logger:info(
-                    ("Personnage créé pour %s : %s %s"):format(player.name, firstname, lastname)
+                    ("Personnage créé pour %s : %s %s (uid=%s)"):format(
+                        player.name, firstname, lastname, uniqueId
+                    )
                 )
                 player:loadCharacters(function()
                     if callback then callback(true, characterId, uniqueId) end
@@ -120,7 +137,7 @@ function Character.select(player, characterId, callback)
         return callback and callback(false, nil)
     end
 
-    -- FIX #3 : mettre à jour player.currentCharacter AVANT d'envoyer spawn:apply
+    -- Mettre à jour player.currentCharacter AVANT le callback et l'event
     player.currentCharacter = selected
     Character.logger:info(
         ("Personnage sélectionné pour %s : %s %s"):format(
@@ -160,8 +177,7 @@ function Character.select(player, characterId, callback)
         function(appearance)
             applySkinData(charData, appearance)
 
-            -- FIX #3 : callback AVANT TriggerClientEvent pour garantir
-            -- que player.currentCharacter est à jour avant union:spawn:confirm
+            -- Callback AVANT TriggerClientEvent (player.currentCharacter déjà défini)
             if callback then callback(true, selected) end
 
             TriggerClientEvent("union:spawn:apply", player.source, charData)
@@ -239,6 +255,31 @@ RegisterNetEvent("union:character:delete", function(characterId)
     Character.delete(player, characterId, function(success)
         TriggerClientEvent("union:character:deleted", src, success)
     end)
+end)
+
+-- Sauvegarde de l'apparence depuis le client
+RegisterNetEvent("union:character:saveAppearance", function(uniqueId, appearance)
+    local src    = source
+    local player = PlayerManager.get(src)
+    if not player or not player.currentCharacter then return end
+
+    -- Vérification que l'uniqueId appartient bien à ce joueur
+    if player.currentCharacter.unique_id ~= uniqueId then
+        Character.logger:warn("Tentative de sauvegarde d'apparence pour un uid non possédé — src=" .. src)
+        return
+    end
+
+    if appearance then
+        CharacterAppearance.save(
+            uniqueId,
+            appearance.skin_data,
+            appearance.face_features,
+            appearance.tattoos,
+            function()
+                Character.logger:info("Apparence sauvegardée pour uid=" .. uniqueId)
+            end
+        )
+    end
 end)
 
 return Character

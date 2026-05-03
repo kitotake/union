@@ -1,9 +1,11 @@
+-- server/modules/auth/characters.lua
+-- FIXES:
+--   #1 : Webhook — character.id remplacé par character.unique_id
+--        (character.id est l'ID SQL interne, unique_id est l'identifiant métier).
+
 Auth.Characters = {}
 Auth.Characters.logger = Logger:child("AUTH:CHARACTERS")
 
------------------------------------------
--- SEND CHARACTER SELECT WEBHOOK
------------------------------------------
 function Auth.Characters.sendCharacterSelected(source, character)
     local identifiers = Auth.Identifier.get(source)
     if not identifiers then
@@ -19,32 +21,30 @@ function Auth.Characters.sendCharacterSelected(source, character)
     local webhookUrl = Config.webhooks.characterSelected or Config.webhooks.default
 
     local embed = {
-        title = "🎭 Character Selected du joueur",
+        title = "🎭 Personnage sélectionné",
         description = table.concat({
             "**License**: `" .. (identifiers.license or "N/A") .. "`",
             "**Nom**: `" .. (character.lastname or "N/A") .. "`",
             "**Prénom**: `" .. (character.firstname or "N/A") .. "`",
-            "**Unique ID**: `" .. (character.id or "N/A") .. "`",
+            -- FIX #1 : unique_id au lieu de id (l'ID SQL interne n'est pas utile ici)
+            "**Unique ID**: `" .. (character.unique_id or "N/A") .. "`",
             "**Discord**: `" .. (identifiers.discord or "N/A") .. "`",
         }, "\n"),
-        color = 3447003, -- Blue
+        color = 3447003,
         timestamp = os.date("!%Y-%m-%dT%H:%M:%SZ"),
     }
 
     ServerUtils.sendDiscordWebhook(webhookUrl, embed)
 
     Auth.Characters.logger:info(
-        ("Character selected: %s %s (%s)"):format(
-            character.firstname,
-            character.lastname,
-            character.id
+        ("Character selected: %s %s (uid=%s)"):format(
+            character.firstname or "?",
+            character.lastname  or "?",
+            character.unique_id or "N/A"
         )
     )
 end
 
------------------------------------------
--- EVENT: CHARACTER SELECTED
------------------------------------------
 RegisterNetEvent("union:character:selected", function(character)
     local src = source
 

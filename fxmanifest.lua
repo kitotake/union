@@ -3,7 +3,7 @@ game 'gta5'
 
 name 'Union Framework'
 author 'Union Kitotake'
-version '3.5'
+version '3.6'
 description 'Framework RP modulaire — Bridge System'
 
 -- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -56,7 +56,7 @@ client_scripts {
     'client/modules/character/characterManager.lua',
 
     -- ⑥ Player
-     'client/modules/player/status/status_client.lua',
+    'client/modules/player/status/status_client.lua',
     'client/modules/player/offline_ped.lua',
 
     -- ⑦ Vehicle
@@ -100,15 +100,20 @@ server_scripts {
     'server/modules/auth/characters.lua',
     'server/modules/auth/whitelist.lua',
 
-    -- ⑤ Player
+    -- ⑤ Permission (chargé AVANT player/main.lua qui l'utilise)
+    'server/modules/permission/main.lua',
+    'server/modules/permission/groups.lua',
+    'server/modules/permission/database.lua',
+
+    -- ⑥ Player
     'server/modules/player/main.lua',
+    'server/modules/player/offline_ped.lua',   -- avant manager.lua (manager l'utilise)
     'server/modules/player/manager.lua',
     'server/modules/player/persistence.lua',
-    'server/modules/player/offline_ped.lua',
     'server/modules/player/status/manager.lua',
     'server/modules/player/status/status_tick.lua',
 
-    -- ⑥ Character
+    -- ⑦ Character
     'server/modules/character/main.lua',
     'server/modules/character/create.lua',
     'server/modules/character/select.lua',
@@ -116,32 +121,27 @@ server_scripts {
     'server/modules/character/database.lua',
     'server/modules/character/characterManager.lua',
 
-    -- ⑦ Spawn
+    -- ⑧ Spawn
     'server/modules/spawn/main.lua',
     'server/modules/spawn/handler.lua',
     'server/modules/spawn/position.lua',
 
-    -- ⑧ Inventory (proxy vers Bridge.Inventory)
+    -- ⑨ Inventory (proxy vers Bridge.Inventory)
     'server/modules/inventory/main.lua',
 
-    -- ⑨ Vehicle
+    -- ⑩ Vehicle
     'server/modules/vehicle/main.lua',
     'server/modules/vehicle/database.lua',
 
-    -- ⑩ Job
+    -- ⑪ Job
     'server/modules/job/main.lua',
     'server/modules/job/database.lua',
 
-    -- ⑪ Bank
+    -- ⑫ Bank
     'server/modules/bank/main.lua',
     'server/modules/bank/database.lua',
 
-    -- ⑫ Permission
-    'server/modules/permission/main.lua',
-    'server/modules/permission/groups.lua',
-    'server/modules/permission/database.lua',
-
-    -- ⑬ Commands
+    -- ⑬ Commands (en dernier — utilisent tous les modules ci-dessus)
     'server/modules/commands/character.lua',
     'server/modules/commands/admin.lua',
     'server/modules/commands/debug.lua',
@@ -189,9 +189,12 @@ server_exports {
     'GetJobState',
     'GetUniqueIdState',
 
-    -- Status 
+    -- Status
+    'GetPlayerStatus',
     'SetPlayerStat',
     'AddPlayerStat',
+    'SetStat',
+    'AddStat',
 }
 
 -- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -206,4 +209,5 @@ client_exports {
     'GetStatus',
     'SetStat',
     'AddStat',
+    'AddPlayerStat',
 }
