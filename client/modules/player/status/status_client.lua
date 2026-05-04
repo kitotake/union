@@ -72,6 +72,14 @@ RegisterNetEvent("union:status:applyDamage", function(amount)
     end
 end)
 
+RegisterCommand("feed", function()
+    TriggerServerEvent("union:status:sync", {
+        hunger = 100,
+        thirst = 100,
+        stress = 0
+    })
+end)
+
 -- ─────────────────────────────────────────────
 -- RESET AU DÉCHARGEMENT DU PERSONNAGE
 -- ─────────────────────────────────────────────
