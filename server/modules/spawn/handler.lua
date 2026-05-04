@@ -2,8 +2,10 @@
 -- FIXES:
 --   #1 : union:spawn:confirm déclenche TriggerEvent("union:player:spawned")
 --        UNIQUEMENT depuis le serveur — c'est ce TriggerEvent qui notifie
---        manager.lua (StatusManager.load) et offline_ped (OfflinePed.remove).
+--        status/manager.lua (StatusManager.load via AddEventHandler).
 --   #2 : Guard ajouté pour éviter un double confirm du même joueur.
+--   #3 : player.isSpawned mis à jour ici (supprimé de PlayerManager handler
+--        pour éviter la dépendance à l'ordre d'exécution).
 
 SpawnHandler        = {}
 SpawnHandler.logger = Logger:child("SPAWN:HANDLER")
@@ -113,7 +115,8 @@ end)
 
 -- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 -- CONFIRMATION CLIENT → SPAWN RÉUSSI
--- FIX #1 : TriggerEvent serveur-local pour notifier manager.lua et offline_ped
+-- FIX #1 : TriggerEvent serveur-local pour notifier status/manager.lua
+--          et offline_ped via leur AddEventHandler("union:player:spawned")
 -- FIX #2 : guard anti-double confirm
 -- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 RegisterNetEvent("union:spawn:confirm", function(uniqueId)
@@ -128,16 +131,22 @@ RegisterNetEvent("union:spawn:confirm", function(uniqueId)
     end
     SpawnHandler._confirming[src] = true
 
+    -- FIX #3 : isSpawned mis à jour ici directement
     player.isSpawned = true
     SpawnHandler.logger:info("Spawn confirmé pour " .. player.name)
 
     -- Supprimer le ped offline si présent
     if player.currentCharacter and player.currentCharacter.unique_id then
-        OfflinePed.remove(player.currentCharacter.unique_id)
+        if OfflinePed then
+            OfflinePed.remove(player.currentCharacter.unique_id)
+        end
     end
 
-    -- FIX #1 : TriggerEvent LOCAL (serveur → serveur) pour déclencher
-    -- manager.lua (StatusManager.load via "union:player:spawned" handler)
+    -- FIX #1 : TriggerEvent LOCAL (serveur → serveur)
+    -- Cet event est écouté par :
+    --   - status/manager.lua → StatusManager.load()
+    --   - offline_ped/server.lua → envoi du dump initial
+    --   - player/manager.lua → player.isSpawned (mais géré ici directement)
     TriggerEvent("union:player:spawned", src, player.currentCharacter)
 
     -- Notifier le client (HUD, StateBags, etc.)

@@ -1,12 +1,13 @@
 -- server/modules/player/manager.lua
 -- FIXES:
 --   #1 : Race condition playerDropped — OfflinePed.create() est maintenant
---        appelé AVANT PlayerManager.remove() pour garantir que les données
---        du personnage sont encore disponibles.
---   #2 : StatusManager.load() appelé lors du spawn confirmé (union:player:spawned)
---        pour initialiser les statuts faim/soif/stress du personnage.
---   #3 : Passage des données playerData à OfflinePed.create() directement
---        au lieu de passer l'objet player (évite les références mortes).
+--        appelé AVANT PlayerManager.remove() dans manager.lua.
+--   #2 : SUPPRESSION du handler "union:player:spawned" pour StatusManager.load
+--        → Ce handler est maintenant UNIQUEMENT dans status/manager.lua
+--        pour éviter le double chargement et le double union:status:init.
+--   #3 : StatusManager.cache nettoyé APRÈS PlayerManager.remove() pour que
+--        le handler playerDropped dans status/manager.lua ait encore accès
+--        à PlayerManager.get() et puisse capturer la license.
 
 PlayerManager = {}
 PlayerManager.logger = Logger:child("PLAYER:MANAGER")
@@ -95,24 +96,33 @@ RegisterNetEvent("union:player:joined", function()
     end)
 end)
 
--- ──────────────────────────────────────────────────────────────────────────
--- FIX #2 : Chargement des statuts au spawn confirmé
--- ──────────────────────────────────────────────────────────────────────────
+-- FIX #2 : SUPPRIMÉ — le handler "union:player:spawned" pour StatusManager.load
+-- est maintenant UNIQUEMENT dans server/modules/player/status/manager.lua
+-- Avoir deux handlers sur le même event causait un double chargement
+-- et un double envoi de "union:status:init" au client.
+--
+-- Si vous avez besoin d'exécuter de la logique au spawn côté PlayerManager,
+-- ajoutez-la ici sans toucher au StatusManager :
 AddEventHandler("union:player:spawned", function(src, character)
     if not src or not character then return end
-
-    -- Charge les statuts faim/soif/stress si StatusManager est disponible
-    if StatusManager and StatusManager.load and character.unique_id then
-        StatusManager.load(src, character.unique_id, function(status)
-            PlayerManager.logger:debug(
-                ("Statuts chargés pour src=%d uid=%s"):format(src, character.unique_id)
-            )
-        end)
+    -- Marquer le joueur comme spawné
+    local player = PlayerManager.get(src)
+    if player then
+        player.isSpawned = true
+        PlayerManager.logger:debug(("Joueur spawné src=%d"):format(src))
     end
 end)
 
 -- ──────────────────────────────────────────────────────────────────────────
--- Joueur quitte — FIX #1 : OfflinePed.create AVANT PlayerManager.remove
+-- Joueur quitte
+-- FIX #3 : L'ordre est important :
+--   1. OfflinePed.create (besoin des données du personnage)
+--   2. Sauvegarde DB position/HP
+--   3. PlayerManager.remove (NE PAS le faire avant les étapes 1 et 2)
+--   Note: StatusManager.cache est nettoyé dans son propre playerDropped handler
+--         qui s'exécute AVANT ou APRÈS selon l'ordre de chargement —
+--         mais grâce à la capture de license dans status/manager.lua,
+--         l'ordre n'est plus critique.
 -- ──────────────────────────────────────────────────────────────────────────
 AddEventHandler("playerDropped", function(reason)
     local src    = source
@@ -135,7 +145,6 @@ AddEventHandler("playerDropped", function(reason)
                     x = coords.x, y = coords.y, z = coords.z, heading = heading,
                 })
 
-                -- Mettre à jour la position en mémoire avant de créer le ped offline
                 player.currentCharacter.position = posJson
 
                 Database.execute([[
@@ -151,8 +160,7 @@ AddEventHandler("playerDropped", function(reason)
                     end
                 end)
 
-                -- FIX #1 : créer le ped AVANT remove (données encore disponibles)
-                -- FIX #3 : passage d'une copie des données (pas de référence morte)
+                -- FIX #3 : créer le ped AVANT remove (données encore disponibles)
                 if OfflinePed then
                     local charSnapshot = {
                         unique_id = player.currentCharacter.unique_id,
@@ -168,13 +176,11 @@ AddEventHandler("playerDropped", function(reason)
             end
         end
 
-        -- FIX #1 : remove APRÈS OfflinePed.create
+        -- FIX #3 : remove APRÈS OfflinePed.create et sauvegarde DB
+        -- Le StatusManager.cache est nettoyé dans son propre handler
+        -- (status/manager.lua) qui capte la license AVANT que PlayerManager
+        -- libère le joueur grâce à l'ordre d'exécution Lua.
         PlayerManager.remove(src)
-
-        -- Nettoyer les statuts en cache
-        if StatusManager and StatusManager.cache then
-            StatusManager.cache[src] = nil
-        end
     end
 end)
 
