@@ -1,9 +1,11 @@
 -- server/modules/player/status/status_tick.lua
 -- FIXES:
---   #1 : Decay passe par StatusManager.set() — cohérent avec l'archi,
---        supprime le TriggerClientEvent redondant (déjà émis par set).
---   #2 : Les events stress sont envoyés conditionnellement.
---   #3 : Une seule save loop (supprimée du manager.lua).
+--   #1 : Decay passe par StatusManager.set() (qui ne flush plus directement).
+--        Un seul TriggerClientEvent groupé par joueur via StatusManager.flushPendingSends().
+--   #2 : Vérification player.isSpawned — pas de decay en écran de chargement.
+--   #3 : Save loop unique ici (retirée de manager.lua).
+--   #4 : Les events stress sont envoyés conditionnellement, en dehors du flush groupé.
+--   #5 : StatusManager récupéré via _G avec guard de chargement.
 
 print("[STATUS] Tick loaded")
 
@@ -21,6 +23,8 @@ end
 
 -- ─────────────────────────────────────────────
 -- MAIN TICK
+-- FIX #1 : decay via set() (pas de flush direct), puis flushPendingSends() une fois.
+-- FIX #2 : skip si player.isSpawned == false.
 -- ─────────────────────────────────────────────
 CreateThread(function()
     while true do
@@ -29,12 +33,13 @@ CreateThread(function()
         for src, status in pairs(StatusManager.cache) do
             if status then
                 local player = PlayerManager.get(src)
-                if not player or not player.currentCharacter then
+
+                -- FIX #2 : skip joueur non encore spawné
+                if not player or not player.currentCharacter or not player.isSpawned then
                     goto continue
                 end
 
-                -- FIX #1 : decay via StatusManager.set pour cohérence
-                -- (set marque _dirty et envoie updateAll au client)
+                -- FIX #1 : set() marque _pendingSend, ne flush pas encore
                 StatusManager.set(src, "hunger", status.hunger - (StatusConfig.decay.hunger or 0.8))
                 StatusManager.set(src, "thirst", status.thirst - (StatusConfig.decay.thirst or 1.2))
 
@@ -47,7 +52,7 @@ CreateThread(function()
                     TriggerClientEvent("union:status:applyDamage", src, StatusConfig.effects.damageAmount or 5)
                 end
 
-                -- FIX #2 : effets stress conditionnels
+                -- FIX #4 : effets stress conditionnels (envoyés séparément, pas dans le flush groupé)
                 if status.stress >= 90 then
                     TriggerClientEvent("union:status:stress:max",  src)
                     TriggerClientEvent("union:status:blur:max",    src)
@@ -64,11 +69,14 @@ CreateThread(function()
                 ::continue::
             end
         end
+
+        -- FIX #1 : un seul updateAll groupé par joueur après tous les sets du cycle
+        StatusManager.flushPendingSends()
     end
 end)
 
 -- ─────────────────────────────────────────────
--- SAVE LOOP — FIX #3 : unique, retirée de manager.lua
+-- SAVE LOOP — FIX #3 : unique ici
 -- ─────────────────────────────────────────────
 CreateThread(function()
     while not Server.isReady do Wait(1000) end
@@ -78,7 +86,7 @@ CreateThread(function()
 
         local saved = 0
         for src, player in pairs(PlayerManager.getAll() or {}) do
-            if player and player.currentCharacter then
+            if player and player.currentCharacter and player.isSpawned then
                 local status = StatusManager.get(src)
                 if status and status._dirty then
                     StatusManager.save(src, status, player.license)
