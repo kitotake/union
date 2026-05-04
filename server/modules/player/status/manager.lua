@@ -1,10 +1,11 @@
 -- server/modules/player/status/manager.lua
 -- FIXES:
---   #1 : Ajout du handler "union:status:sync" — sans ce handler, les appels
---        client AddStat/SetStat ne remontaient jamais au serveur, les statuts
---        étaient donc figés côté serveur et ne se sauvegardaient pas.
---   #2 : Export "SetStat" ajouté (déclaré dans fxmanifest mais absent).
---   #3 : Nettoyage + sauvegarde du cache à la déconnexion.
+--   #1 : Ajout du handler "union:status:sync"
+--   #2 : Export "SetStat" ajouté
+--   #3 : Nettoyage + sauvegarde du cache à la déconnexion
+--   #4 : Suppression de la save loop dupliquée (gérée dans status_tick.lua)
+--   #5 : Fix playerDropped — sauvegarde directe sans PlayerManager.get()
+--        pour éviter la race condition à la déconnexion
 
 print("[STATUS] Manager loaded")
 
@@ -66,11 +67,18 @@ function StatusManager.load(src, uniqueId, callback)
     )
 end
 
-function StatusManager.save(src, status)
+-- FIX #5 : save accepte un identifier optionnel pour éviter
+-- la dépendance à PlayerManager.get() lors du playerDropped
+function StatusManager.save(src, status, identifier)
     if not status or not status._dirty or not status._uniqueId then return end
 
-    local player = PlayerManager.get(src)
-    if not player or not player.license then return end
+    local license = identifier
+
+    if not license then
+        local player = PlayerManager.get(src)
+        if not player or not player.license then return end
+        license = player.license
+    end
 
     exports.oxmysql:execute([[
         INSERT INTO player_status (identifier, unique_id, hunger, thirst, stress, last_update)
@@ -81,7 +89,7 @@ function StatusManager.save(src, status)
             stress      = VALUES(stress),
             last_update = NOW()
     ]], {
-        player.license,
+        license,
         status._uniqueId,
         clamp(status.hunger),
         clamp(status.thirst),
@@ -122,8 +130,6 @@ end
 
 -- ─────────────────────────────────────────────
 -- FIX #1 : handler union:status:sync
--- Reçoit les mises à jour initiées côté client (AddStat / SetStat)
--- Sans ce handler, les statuts ne remontaient JAMAIS au serveur.
 -- ─────────────────────────────────────────────
 RegisterNetEvent("union:status:sync", function(clientStatus)
     local src = source
@@ -132,25 +138,28 @@ RegisterNetEvent("union:status:sync", function(clientStatus)
     local s = StatusManager.cache[src]
     if not s then return end
 
-    -- On applique seulement les stats autorisées et on clamp
     for stat, _ in pairs(ALLOWED_STATS) do
         if clientStatus[stat] ~= nil then
             s[stat] = clamp(clientStatus[stat])
         end
     end
     s._dirty = true
-
-    -- Pas de TriggerClientEvent ici pour éviter la boucle infinie
-    -- (le client a déjà la valeur à jour localement)
 end)
 
 -- ─────────────────────────────────────────────
--- FIX #3 : nettoyage du cache à la déconnexion
+-- FIX #3 + #5 : playerDropped avec license capturée avant déco
 -- ─────────────────────────────────────────────
 AddEventHandler("playerDropped", function()
     local src = source
-    if StatusManager.cache[src] then
-        StatusManager.save(src, StatusManager.cache[src])
+
+    -- On récupère la license AVANT que PlayerManager la libère
+    local license = nil
+    local player  = PlayerManager.get(src)
+    if player then license = player.license end
+
+    local status = StatusManager.cache[src]
+    if status then
+        StatusManager.save(src, status, license)
         StatusManager.cache[src] = nil
         StatusManager.logger:debug("Cache statut nettoyé pour src=" .. tostring(src))
     end
@@ -164,7 +173,7 @@ exports("GetPlayerStatus", StatusManager.get)
 exports("SetPlayerStat",   StatusManager.set)
 exports("AddPlayerStat",   StatusManager.add)
 
--- FIX #2 : exports SetStat / AddStat (déclarés dans fxmanifest, absents ici)
+-- FIX #2 : exports SetStat / AddStat
 exports("SetStat", function(stat, value)
     local src = source
     StatusManager.set(src, stat, value)

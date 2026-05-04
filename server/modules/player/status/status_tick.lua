@@ -1,11 +1,9 @@
 -- server/modules/player/status/status_tick.lua
 -- FIXES:
---   #1 : PlayerManager.getAll() retourne une table indexée par source (number),
---        pas par index numérique. La boucle `for src, player` est correcte,
---        mais on doit vérifier que StatusManager.cache[src] correspond bien
---        à un joueur encore connecté.
---   #2 : Les events stress (blur, heartbeat) sont envoyés conditionnellement
---        seulement si le joueur a un personnage actif.
+--   #1 : Decay passe par StatusManager.set() — cohérent avec l'archi,
+--        supprime le TriggerClientEvent redondant (déjà émis par set).
+--   #2 : Les events stress sont envoyés conditionnellement.
+--   #3 : Une seule save loop (supprimée du manager.lua).
 
 print("[STATUS] Tick loaded")
 
@@ -28,22 +26,20 @@ CreateThread(function()
     while true do
         Wait(StatusConfig.tickInterval or 5000)
 
-        -- FIX #1 : itération correcte — StatusManager.cache est indexé par src (number)
         for src, status in pairs(StatusManager.cache) do
             if status then
-                -- Vérification que le joueur est encore connecté
                 local player = PlayerManager.get(src)
                 if not player or not player.currentCharacter then
-                    -- Joueur déconnecté ou sans personnage, on saute
                     goto continue
                 end
 
-                -- Decay
-                status.hunger = StatusManager.clamp(status.hunger - (StatusConfig.decay.hunger or 0.8))
-                status.thirst = StatusManager.clamp(status.thirst - (StatusConfig.decay.thirst or 1.2))
+                -- FIX #1 : decay via StatusManager.set pour cohérence
+                -- (set marque _dirty et envoie updateAll au client)
+                StatusManager.set(src, "hunger", status.hunger - (StatusConfig.decay.hunger or 0.8))
+                StatusManager.set(src, "thirst", status.thirst - (StatusConfig.decay.thirst or 1.2))
 
                 if status.stress > 0 then
-                    status.stress = StatusManager.clamp(status.stress - (StatusConfig.stressDecay or 0.5))
+                    StatusManager.set(src, "stress", status.stress - (StatusConfig.stressDecay or 0.5))
                 end
 
                 -- Dégâts si faim ou soif à 0
@@ -63,14 +59,6 @@ CreateThread(function()
                     TriggerClientEvent("union:status:stress:low",  src)
                 end
 
-                status._dirty = true
-
-                TriggerClientEvent("union:status:updateAll", src, {
-                    hunger = status.hunger,
-                    thirst = status.thirst,
-                    stress = status.stress,
-                })
-
                 debug(("tick src=%s | h=%d t=%d s=%d"):format(tostring(src), status.hunger, status.thirst, status.stress))
 
                 ::continue::
@@ -80,7 +68,7 @@ CreateThread(function()
 end)
 
 -- ─────────────────────────────────────────────
--- SAVE LOOP
+-- SAVE LOOP — FIX #3 : unique, retirée de manager.lua
 -- ─────────────────────────────────────────────
 CreateThread(function()
     while not Server.isReady do Wait(1000) end
@@ -89,12 +77,11 @@ CreateThread(function()
         Wait(StatusConfig.saveInterval or 60000)
 
         local saved = 0
-        -- FIX #1 : itération correcte sur PlayerManager (indexé par source)
         for src, player in pairs(PlayerManager.getAll() or {}) do
             if player and player.currentCharacter then
                 local status = StatusManager.get(src)
                 if status and status._dirty then
-                    StatusManager.save(src, status)
+                    StatusManager.save(src, status, player.license)
                     saved = saved + 1
                 end
             end
