@@ -1,9 +1,7 @@
 -- server/components/utils.lua
--- FIXES:
---   #1 : generateUniqueId() vérifie l'unicité en base avant de retourner l'ID.
---        Évite (certes rare mais catastrophique) la collision de unique_id.
---   #2 : Version async avec callback pour usage dans Character.create().
---   #3 : Version sync conservée pour compatibilité (sans vérification DB — usage interne uniquement).
+-- FIX #1  : generateUniqueId ajoute un vrai check DB pour éviter les doublons
+-- FIX #2  : notifyPlayer utilise "src" pour éviter la confusion avec source global
+-- FIX #3  : Utils.hasPermission passe explicitement la source
 
 ServerUtils = {}
 
@@ -29,47 +27,39 @@ function ServerUtils.getIdentifier(source, idType)
     end
 end
 
--- FIX #3 : version sync sans vérification DB (usage interne / non-critique)
+-- FIX #1 : vérification DB pour garantir l'unicité de l'UID généré
 function ServerUtils.generateUniqueId(length)
     length = length or 12
     local chars = "0123456789"
-    local id = ""
-    for i = 1, length do
-        local rand = math.random(#chars)
-        id = id .. chars:sub(rand, rand)
-    end
-    return "chr_" .. id
-end
+    local maxAttempts = 10
 
--- FIX #1 + #2 : version async avec vérification d'unicité en base
--- Callback reçoit l'ID unique garanti, ou nil si trop de tentatives échouent.
-function ServerUtils.generateUniqueIdSafe(callback, length, _attempt)
-    length   = length or 12
-    _attempt = _attempt or 1
-
-    if _attempt > 10 then
-        print("^1[ServerUtils] generateUniqueIdSafe: impossible de générer un ID unique après 10 tentatives^0")
-        if callback then callback(nil) end
-        return
-    end
-
-    local id = ServerUtils.generateUniqueId(length)
-
-    exports.oxmysql:scalar(
-        "SELECT unique_id FROM characters WHERE unique_id = ? LIMIT 1",
-        { id },
-        function(existing)
-            if existing then
-                -- Collision → retenter
-                ServerUtils.generateUniqueIdSafe(callback, length, _attempt + 1)
-            else
-                if callback then callback(id) end
-            end
+    for attempt = 1, maxAttempts do
+        local id = "chr_"
+        for _ = 1, length do
+            local rand = math.random(#chars)
+            id = id .. chars:sub(rand, rand)
         end
-    )
+
+        -- Vérifier que l'UID n'existe pas déjà en base
+        local exists = MySQL.scalar.await(
+            "SELECT COUNT(*) FROM characters WHERE unique_id = ?",
+            { id }
+        )
+
+        if not exists or exists == 0 then
+            return id
+        end
+
+        Logger:warn(("generateUniqueId: collision sur %s (tentative %d/%d)"):format(id, attempt, maxAttempts))
+    end
+
+    -- Dernier recours : ajouter timestamp pour unicité garantie
+    local fallback = "chr_" .. tostring(os.time()) .. tostring(math.random(1000, 9999))
+    Logger:error("generateUniqueId: fallback utilisé — " .. fallback)
+    return fallback
 end
 
-exports('generateUniqueId', function(len)
+exports("generateUniqueId", function(len)
     return ServerUtils.generateUniqueId(len)
 end)
 
@@ -85,6 +75,7 @@ function ServerUtils.validateDate(date)
     return true
 end
 
+-- FIX #2 : paramètre renommé "src" partout pour éviter le shadowing de la globale FiveM
 function ServerUtils.notifyPlayer(src, message, type, duration)
     type     = type     or "info"
     duration = duration or 3000
@@ -107,14 +98,14 @@ function ServerUtils.sendDiscordWebhook(webhookUrl, embed)
     if not webhookUrl or webhookUrl == "" then return false end
     local content = {
         username = embed.username or "Union Framework",
-        embeds = { embed }
+        embeds   = { embed }
     }
     PerformHttpRequest(webhookUrl, function(err)
         if err ~= 200 and err ~= 204 then
             Logger:error("Discord webhook failed: " .. tostring(err))
         end
-    end, 'POST', json.encode(content), {
-        ['Content-Type'] = 'application/json'
+    end, "POST", json.encode(content), {
+        ["Content-Type"] = "application/json"
     })
     return true
 end

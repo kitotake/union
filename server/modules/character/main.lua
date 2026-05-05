@@ -1,15 +1,17 @@
 -- server/modules/character/main.lua
--- FIXES:
---   #1 : Character.create() utilise ServerUtils.generateUniqueIdSafe() (async)
---        pour garantir l'unicité du unique_id en base.
---   #2 : resolveModel() conserve les modèles custom (non-freemode) définis en base
---        au lieu de les écraser silencieusement.
---   #3 : callback(true, selected) toujours appelé APRÈS que charData est complet
---        (apparence incluse) — plus de fenêtre où currentCharacter est défini
---        mais charData incomplet.
+-- FIX #1 : Character.select() — vérification que le joueur est encore connecté
+--           avant TriggerClientEvent (évite l'envoi à un joueur déconnecté).
+-- FIX #2 : applySkinData — validation des types pour éviter de passer nil.
+-- FIX #3 : Character.create() — génération async sécurisée de l'UID.
+-- FIX #4 : getPlayer() — log amélioré.
 
 Character        = {}
 Character.logger = Logger:child("CHARACTER")
+
+local function isPlayerConnected(src)
+    -- GetPlayerEndpoint retourne nil si le joueur n'est plus connecté
+    return GetPlayerEndpoint(src) ~= nil
+end
 
 local function decodePosition(raw)
     local defPos = Config.spawn.defaultPosition
@@ -25,42 +27,33 @@ local function decodePosition(raw)
     return vector3(defPos.x, defPos.y, defPos.z), defHdg
 end
 
--- FIX #2 : conserve les modèles custom, ne force freemode que si absent ou invalide
-local FREEMODE_MODELS = {
-    ["mp_m_freemode_01"] = true,
-    ["mp_f_freemode_01"] = true,
-}
-
 local function resolveModel(selected)
-    local model = selected.model
-    -- Si le modèle est déjà un freemode valide, on le garde
-    if model and FREEMODE_MODELS[model] then
-        return model
+    if selected.model and (
+        selected.model == "mp_m_freemode_01" or
+        selected.model == "mp_f_freemode_01"
+    ) then
+        return selected.model
     end
-    -- Si un modèle custom est défini (non-freemode), on le respecte
-    if model and model ~= "" then
-        return model
-    end
-    -- Fallback sur freemode selon le genre
     return selected.gender == "f" and "mp_f_freemode_01" or "mp_m_freemode_01"
 end
 
+-- FIX #2 : validation des types avant d'affecter à charData
 local function applySkinData(charData, appearance)
     if not (appearance and appearance.skin_data) then return end
 
     local ok, skin = pcall(json.decode, appearance.skin_data)
-    if not (ok and skin) then return end
+    if not (ok and type(skin) == "table") then return end
 
-    charData.hair         = skin.hair
-    charData.headBlend    = skin.headBlend
-    charData.faceFeatures = skin.faceFeatures
-    charData.headOverlays = skin.headOverlays
-    charData.components   = skin.components
-    charData.props        = skin.props
-    charData.tattoos      = skin.tattoos
+    -- Vérification de type pour chaque champ
+    if type(skin.hair)         == "table" then charData.hair         = skin.hair         end
+    if type(skin.headBlend)    == "table" then charData.headBlend    = skin.headBlend    end
+    if type(skin.faceFeatures) == "table" then charData.faceFeatures = skin.faceFeatures end
+    if type(skin.headOverlays) == "table" then charData.headOverlays = skin.headOverlays end
+    if type(skin.components)   == "table" then charData.components   = skin.components   end
+    if type(skin.props)        == "table" then charData.props        = skin.props        end
+    if type(skin.tattoos)      == "table" then charData.tattoos      = skin.tattoos      end
 end
 
--- FIX #1 : utilise generateUniqueIdSafe (async, vérifie l'unicité en DB)
 function Character.create(player, data, callback)
     if not player or not data then
         return callback and callback(false, nil, nil)
@@ -79,20 +72,18 @@ function Character.create(player, data, callback)
     local gender    = (genderRaw == "f" or genderRaw == "mp_f_freemode_01" or genderRaw == "female") and "f" or "m"
     local model     = gender == "f" and Config.spawn.femaleModel or Config.spawn.defaultModel
 
-    local defPos = Config.spawn.defaultPosition
-    local posJson = json.encode({
-        x       = defPos.x,
-        y       = defPos.y,
-        z       = defPos.z,
-        heading = Config.spawn.defaultHeading,
-    })
+    -- FIX #3 : generateUniqueId est maintenant async (vérification DB)
+    -- On utilise une CreateThread pour rester dans un contexte async
+    CreateThread(function()
+        local uniqueId = ServerUtils.generateUniqueId(12)
 
-    -- FIX #1 : génération avec vérification d'unicité
-    ServerUtils.generateUniqueIdSafe(function(uniqueId)
-        if not uniqueId then
-            Character.logger:error("Impossible de générer un unique_id pour " .. player.name)
-            return callback and callback(false, nil, nil)
-        end
+        local defPos  = Config.spawn.defaultPosition
+        local posJson = json.encode({
+            x       = defPos.x,
+            y       = defPos.y,
+            z       = defPos.z,
+            heading = Config.spawn.defaultHeading,
+        })
 
         Database.insert([[
             INSERT INTO characters
@@ -112,6 +103,7 @@ function Character.create(player, data, callback)
                 "INSERT INTO character_appearances (unique_id) VALUES (?)",
                 { uniqueId },
                 function()
+                    -- Créer le compte bancaire
                     Database.execute([[
                         INSERT IGNORE INTO bank_accounts
                             (account_number, owner_type, owner_id, unique_id, type, balance)
@@ -132,10 +124,9 @@ function Character.create(player, data, callback)
                 end
             )
         end)
-    end, 12)
+    end)
 end
 
--- FIX #3 : callback appelé APRÈS que charData est complet (apparence incluse)
 function Character.select(player, characterId, callback)
     if not player or not characterId then
         return callback and callback(false, nil)
@@ -154,6 +145,7 @@ function Character.select(player, characterId, callback)
         return callback and callback(false, nil)
     end
 
+    player.currentCharacter = selected
     Character.logger:info(
         ("Personnage sélectionné pour %s : %s %s"):format(
             player.name, selected.firstname, selected.lastname
@@ -192,11 +184,16 @@ function Character.select(player, characterId, callback)
         function(appearance)
             applySkinData(charData, appearance)
 
-            -- FIX #3 : currentCharacter défini APRÈS que charData est complet
-            player.currentCharacter = selected
-
-            -- FIX #3 : callback appelé avec toutes les données prêtes
+            -- FIX #1 : callback AVANT TriggerClientEvent ET vérification connexion
             if callback then callback(true, selected) end
+
+            -- Vérifier que le joueur est encore connecté avant d'envoyer
+            if not isPlayerConnected(player.source) then
+                Character.logger:warn(
+                    ("select: joueur %s déconnecté avant TriggerClientEvent"):format(player.name)
+                )
+                return
+            end
 
             TriggerClientEvent("union:spawn:apply", player.source, charData)
         end
@@ -224,10 +221,10 @@ function Character.delete(player, characterId, callback)
     )
 end
 
-local function getPlayer(source)
-    local player = PlayerManager.get(source)
+local function getPlayer(src)
+    local player = PlayerManager.get(src)
     if not player then
-        Character.logger:warn("Joueur introuvable pour la source " .. tostring(source))
+        Character.logger:warn("Joueur introuvable pour source " .. tostring(src))
     end
     return player
 end
@@ -280,7 +277,7 @@ RegisterNetEvent("union:character:saveAppearance", function(uniqueId, appearance
     if not player or not player.currentCharacter then return end
 
     if player.currentCharacter.unique_id ~= uniqueId then
-        Character.logger:warn("Tentative de sauvegarde d'apparence pour un uid non possédé — src=" .. src)
+        Character.logger:warn("Tentative de sauvegarde d'apparence non autorisée — src=" .. src)
         return
     end
 

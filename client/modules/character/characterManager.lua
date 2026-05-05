@@ -1,6 +1,9 @@
 -- client/modules/character/characterManager.lua
--- FIX #1 : suppression de TriggerClientEvent(-1) depuis le client (invalide dans FiveM)
--- FIX : seule la NUI est gérée ici — le spawn est délégué à spawn/main.lua via union:spawn:apply
+-- FIX #1 : suppression de TriggerClientEvent(-1) depuis le client (invalide).
+-- FIX #2 : characters:playerReady est toujours envoyé au démarrage ;
+--           le serveur a maintenant un handler no-op pour l'absorber proprement.
+-- FIX #3 : doSpawn ne déclenche plus de spawn supplémentaire (déjà géré par union:spawn:apply).
+-- FIX #4 : closeSelectionUI appelé une seule fois, guard nuiOpen fiable.
 
 local nuiOpen = false
 
@@ -12,8 +15,6 @@ local function closeSelectionUI()
 end
 
 -- EVENT : auto-spawn (1 seul personnage)
--- FIX #1 : suppression des TriggerEvent/TriggerClientEvent redondants et invalides
--- Le serveur déclenche directement union:spawn:apply via Character.select
 RegisterNetEvent("characters:autoSpawn", function(charData)
     if not charData then
         Logger:error("[charManager] autoSpawn : charData nil")
@@ -32,49 +33,52 @@ end)
 
 -- EVENT : ouvre la NUI de sélection (plusieurs personnages)
 RegisterNetEvent("characters:openSelection", function(data)
-    if nuiOpen then return end
+    if nuiOpen then
+        Logger:warn("[charManager] NUI déjà ouverte, openSelection ignoré")
+        return
+    end
 
-    Logger:info(("[charManager] Ouverture sélection NUI (%d personnages)"):format(
-        data.characters and #data.characters or 0
-    ))
+    local chars = data and data.characters or {}
+    Logger:info(("[charManager] Ouverture sélection NUI (%d personnages)"):format(#chars))
 
     SetNuiFocus(true, true)
     SendNUIMessage({
         action     = "openCharacterSelection",
-        slots      = data.slots,
-        characters = data.characters,
+        slots      = data and data.slots or 1,
+        characters = chars,
     })
     nuiOpen = true
 end)
 
 -- EVENT : ouvre la NUI de création (aucun personnage)
 RegisterNetEvent("characters:openCreation", function(data)
-    Logger:info(("[charManager] Création demandée (slots=%d)"):format(data.slots or 1))
+    Logger:info(("[charManager] Création demandée (slots=%d)"):format(data and data.slots or 1))
+    -- La création est gérée par kt_character via le net event kt_character:openCreator
 end)
 
 -- EVENT : spawn après sélection validée côté serveur
--- FIX #1 : suppression du double TriggerEvent/TriggerClientEvent
--- spawn/main.lua reçoit union:spawn:apply directement du serveur
+-- FIX #3 : doSpawn sert UNIQUEMENT à fermer la NUI. Le spawn est géré par union:spawn:apply.
 RegisterNetEvent("characters:doSpawn", function(charData)
     if not charData then
         Logger:error("[charManager] doSpawn : charData nil")
         return
     end
 
-    Logger:info(("[charManager] doSpawn reçu pour %s %s"):format(
+    Logger:info(("[charManager] doSpawn reçu pour %s %s — fermeture NUI"):format(
         charData.firstname or "?",
         charData.lastname  or "?"
     ))
 
     closeSelectionUI()
-    -- Le serveur a déjà envoyé union:spawn:apply au client via Character.select
-    -- Ne pas re-déclencher ici
+    -- NE PAS re-déclencher union:spawn:apply ici
 end)
 
 -- EVENT : message d'erreur depuis le serveur
 RegisterNetEvent("characters:error", function(msg)
     Logger:error("[charManager] Erreur : " .. tostring(msg))
-    SendNUIMessage({ action = "showError", message = msg })
+    if nuiOpen then
+        SendNUIMessage({ action = "showError", message = msg })
+    end
     Notifications.send(msg, "error")
 end)
 
@@ -95,7 +99,9 @@ RegisterNUICallback("closeCharacterSelection", function(_, cb)
     cb({ ok = false, reason = "Vous devez sélectionner un personnage." })
 end)
 
--- Initialisation : signale au serveur que le client est prêt
+-- FIX #2 : au démarrage, on signale que le client est prêt.
+-- Le serveur a un handler no-op pour characters:playerReady.
+-- Le vrai routing de spawn passe par union:spawn:requestInitial.
 AddEventHandler("onClientResourceStart", function(resourceName)
     if resourceName ~= GetCurrentResourceName() then return end
     Wait(2000)

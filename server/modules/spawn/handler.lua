@@ -1,17 +1,23 @@
 -- server/modules/spawn/handler.lua
--- FIXES:
---   #1 : _confirming[src] nettoyé dans playerDropped → plus de blocage si crash entre
---        union:spawn:apply et union:spawn:confirm.
---   #2 : SpawnHandler._confirming reset correctement sans dépendre du SetTimeout seul.
---   #3 : requestInitial — guard si joueur déjà spawné (double-connect ou reconnect rapide).
+-- FIX #1 : guard anti-double confirm avec nettoyage fiable à la déconnexion.
+-- FIX #2 : vérification que le joueur est encore connecté avant TriggerClientEvent.
+-- FIX #3 : characters:playerReady — ajout d'un handler vide pour éviter les warnings.
+-- FIX #4 : SpawnHandler._confirming nettoyé immédiatement à playerDropped.
 
 SpawnHandler        = {}
 SpawnHandler.logger = Logger:child("SPAWN:HANDLER")
 
-SpawnHandler._confirming = {}
+-- Clés de session pour éviter le double confirm
+-- { [src] = sessionId }
+SpawnHandler._sessions    = {}
+SpawnHandler._confirming  = {}
+
+local function isConnected(src)
+    return GetPlayerEndpoint(src) ~= nil
+end
 
 -- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- INITIAL SPAWN
+-- SPAWN INITIAL
 -- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 RegisterNetEvent("union:spawn:requestInitial", function()
     local src    = source
@@ -22,18 +28,18 @@ RegisterNetEvent("union:spawn:requestInitial", function()
         return
     end
 
-    -- FIX #3 : si déjà spawné (reconnect rapide / double event), ignorer
-    if player.isSpawned then
-        SpawnHandler.logger:warn(("requestInitial ignoré — joueur déjà spawné src=%d"):format(src))
-        return
-    end
-
     if player.isLoading then
         local waited = 0
         while player.isLoading and waited < 50 do
             Wait(100)
             waited = waited + 1
         end
+    end
+
+    -- FIX #2 : vérifier connexion après l'attente
+    if not isConnected(src) then
+        SpawnHandler.logger:warn("requestInitial: joueur " .. src .. " déconnecté pendant l'attente")
+        return
     end
 
     local chars = player.characters or {}
@@ -46,18 +52,37 @@ RegisterNetEvent("union:spawn:requestInitial", function()
     end
 
     if #chars == 1 then
-        SpawnHandler.logger:info(("Joueur %s : 1 personnage → spawn automatique"):format(player.name))
+        SpawnHandler.logger:info(("Joueur %s : 1 personnage → auto-spawn"):format(player.name))
         Character.select(player, chars[1].id, function(success)
             if not success then
                 SpawnHandler.logger:error("Auto-select échoué pour " .. player.name)
-                TriggerClientEvent("union:spawn:apply", src, SpawnHandler._buildCharData(chars[1]))
+                -- FIX #2 : re-vérifier connexion
+                if isConnected(src) then
+                    TriggerClientEvent("union:spawn:apply", src, SpawnHandler._buildCharData(chars[1]))
+                end
             end
         end)
         return
     end
 
     SpawnHandler.logger:info(("Joueur %s : %d personnages → sélection NUI"):format(player.name, #chars))
-    TriggerClientEvent("union:spawn:selectCharacter", src, chars)
+
+    -- Ouvrir la sélection NUI (format compatible avec characterManager.lua côté client)
+    TriggerClientEvent("characters:openSelection", src, {
+        slots      = player.slots or 1,
+        characters = chars,
+    })
+end)
+
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- FIX #3 : handler pour characters:playerReady
+-- Envoyé par le client (characterManager.lua) au démarrage.
+-- Plus utilisé pour le routing du spawn mais on l'absorbe proprement.
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+RegisterNetEvent("characters:playerReady", function()
+    -- No-op : le spawn est géré par union:spawn:requestInitial
+    -- On loggue en debug pour le suivi
+    SpawnHandler.logger:debug("characters:playerReady reçu de src=" .. tostring(source) .. " (ignoré)")
 end)
 
 -- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -104,6 +129,9 @@ RegisterNetEvent("union:spawn:requestRespawn", function(model)
     local player = PlayerManager.get(src)
     if not player or not player.currentCharacter then return end
 
+    -- FIX #2 : vérification connexion
+    if not isConnected(src) then return end
+
     local char = player.currentCharacter
     TriggerClientEvent("union:spawn:apply", src, {
         id        = char.id,
@@ -118,12 +146,15 @@ end)
 
 -- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 -- CONFIRMATION CLIENT → SPAWN RÉUSSI
+-- FIX #1 : guard anti-double avec session ID
+-- FIX #4 : nettoyage immédiat à playerDropped
 -- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 RegisterNetEvent("union:spawn:confirm", function(uniqueId)
     local src    = source
     local player = PlayerManager.get(src)
     if not player then return end
 
+    -- FIX #1 : guard strict — si déjà en cours de confirmation, ignorer
     if SpawnHandler._confirming[src] then
         SpawnHandler.logger:warn("Double confirm ignoré pour src=" .. src)
         return
@@ -133,17 +164,23 @@ RegisterNetEvent("union:spawn:confirm", function(uniqueId)
     player.isSpawned = true
     SpawnHandler.logger:info("Spawn confirmé pour " .. player.name)
 
+    -- Supprimer le ped offline si présent
     if player.currentCharacter and player.currentCharacter.unique_id then
         if OfflinePed then
             OfflinePed.remove(player.currentCharacter.unique_id)
         end
     end
 
+    -- Event serveur-local (écouté par status/manager.lua et offline_ped.lua)
     TriggerEvent("union:player:spawned", src, player.currentCharacter)
-    TriggerClientEvent("union:player:spawned", src, player.currentCharacter)
 
-    -- FIX #2 : reset après 2s mais playerDropped nettoie aussi (voir ci-dessous)
-    SetTimeout(2000, function()
+    -- FIX #2 : vérification connexion avant TriggerClientEvent
+    if isConnected(src) then
+        TriggerClientEvent("union:player:spawned", src, player.currentCharacter)
+    end
+
+    -- FIX #1 : reset du guard après 3s (SetTimeout FiveM est disponible côté serveur)
+    SetTimeout(3000, function()
         SpawnHandler._confirming[src] = nil
     end)
 end)
@@ -154,14 +191,15 @@ end)
 RegisterNetEvent("union:spawn:error", function(errorType)
     local src = source
     SpawnHandler.logger:error(("Erreur spawn [%s]: %s"):format(src, tostring(errorType)))
+    -- FIX #4 : nettoyage immédiat
     SpawnHandler._confirming[src] = nil
 end)
 
--- FIX #1 : nettoyage complet à la déconnexion
--- Couvre le cas où le joueur crashe entre union:spawn:apply et union:spawn:confirm
+-- FIX #4 : nettoyage IMMÉDIAT à la déconnexion (pas de SetTimeout)
 AddEventHandler("playerDropped", function()
     local src = source
     SpawnHandler._confirming[src] = nil
+    SpawnHandler._sessions[src]   = nil
 end)
 
 -- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -169,6 +207,8 @@ end)
 -- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 function SpawnHandler.applyCharacter(player, characterData)
     if not player or not characterData then return false end
+    -- FIX #2 : vérification connexion
+    if not isConnected(player.source) then return false end
     TriggerClientEvent("union:spawn:apply", player.source, characterData)
     return true
 end

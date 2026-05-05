@@ -1,10 +1,40 @@
 -- server/modules/vehicle/main.lua
--- FIX #14 : remplacement de "local source = source" par "local src = source"
---           dans tous les RegisterNetEvent pour éviter le shadowing de la globale FiveM
+-- FIX #1 : génération de plaque avec retry et vérification unicité en DB
+-- FIX #2 : "local src = source" dans tous les RegisterNetEvent (pas de shadowing)
+-- FIX #3 : vérification currentCharacter avant accès (déjà présent, renforcé)
 
-Vehicle = {}
+Vehicle        = {}
 Vehicle.logger = Logger:child("VEHICLE")
-Vehicle.owned = {}
+Vehicle.owned  = {}
+
+-- FIX #1 : génération de plaque unique avec vérification DB
+local function generateUniquePlate(callback)
+    local function tryGenerate(attempts)
+        if attempts > 10 then
+            -- Dernier recours avec timestamp
+            local fallback = "U" .. tostring(os.time()):sub(-5) .. tostring(math.random(10, 99))
+            callback(fallback)
+            return
+        end
+
+        local plate = "UNI" .. math.random(100, 999) .. math.random(10, 99)
+
+        Database.scalar(
+            "SELECT COUNT(*) FROM owned_vehicles WHERE plate = ?",
+            { plate },
+            function(count)
+                if not count or count == 0 then
+                    callback(plate)
+                else
+                    Vehicle.logger:warn(("Plaque %s déjà utilisée, nouvelle tentative %d/10"):format(plate, attempts))
+                    tryGenerate(attempts + 1)
+                end
+            end
+        )
+    end
+
+    tryGenerate(1)
+end
 
 function Vehicle.giveToPlayer(player, model, props, callback)
     if not player or not model then
@@ -12,32 +42,40 @@ function Vehicle.giveToPlayer(player, model, props, callback)
         return
     end
 
-    local plate = "UNI" .. math.random(100, 999) .. math.random(10, 99)
+    if not player.currentCharacter then
+        Vehicle.logger:warn("giveToPlayer: aucun personnage actif pour " .. player.name)
+        if callback then callback(false) end
+        return
+    end
 
-    Database.insert([[
-        INSERT INTO owned_vehicles
-        (plate, unique_id, vehicle_model, vehicle_props)
-        VALUES (?, ?, ?, ?)
-    ]], {
-        plate,
-        player.currentCharacter.unique_id,
-        model,
-        json.encode(props or {})
-    }, function(result)
-        if result then
-            Vehicle.logger:info("Vehicle given to " .. player.name .. ": " .. plate)
-            player:notify("Vehicle given: " .. plate, "success")
-            if callback then callback(true) end
-        else
-            if callback then callback(false) end
-        end
+    -- FIX #1 : plaque unique garantie
+    generateUniquePlate(function(plate)
+        Database.insert([[
+            INSERT INTO owned_vehicles
+            (plate, unique_id, vehicle_model, vehicle_props)
+            VALUES (?, ?, ?, ?)
+        ]], {
+            plate,
+            player.currentCharacter.unique_id,
+            model,
+            json.encode(props or {})
+        }, function(result)
+            if result then
+                Vehicle.logger:info("Véhicule donné à " .. player.name .. " : " .. plate)
+                player:notify("Véhicule donné : " .. plate, "success")
+                if callback then callback(true) end
+            else
+                Vehicle.logger:error("Échec INSERT owned_vehicles pour " .. player.name)
+                if callback then callback(false) end
+            end
+        end)
     end)
 end
 
 function Vehicle.getPlayerVehicles(uniqueId, callback)
     Database.fetch(
         "SELECT * FROM owned_vehicles WHERE unique_id = ?",
-        {uniqueId},
+        { uniqueId },
         callback
     )
 end
@@ -45,12 +83,15 @@ end
 function Vehicle.remove(plate, callback)
     Database.execute(
         "DELETE FROM owned_vehicles WHERE plate = ?",
-        {plate},
+        { plate },
         callback
     )
 end
 
--- FIX #14 : src au lieu de local source = source
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- NET EVENTS — FIX #2 : src au lieu de local source = source
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
 RegisterNetEvent("union:vehicle:give", function(model)
     local src    = source
     local player = PlayerManager.get(src)
@@ -77,7 +118,6 @@ RegisterNetEvent("union:vehicle:spawn", function(plate)
     local src    = source
     local player = PlayerManager.get(src)
 
-    -- FIX #16 : vérification de currentCharacter avant accès
     if not player or not player.currentCharacter then return end
 
     Database.fetchOne(

@@ -1,8 +1,10 @@
 -- client/modules/commands/bank.lua
+-- FIX : utilise Client.currentCharacter au lieu de Character.current
+--       (source unique de vérité pour le personnage actif).
 
 -- /balance — affiche le solde du compte
 RegisterCommand("balance", function()
-    if not Character.current then
+    if not Client.currentCharacter then
         Notifications.send("Aucun personnage actif.", "warning")
         return
     end
@@ -11,7 +13,7 @@ end, false)
 
 -- /deposit <montant> — déposer de l'argent
 RegisterCommand("deposit", function(source, args)
-    if not Character.current then
+    if not Client.currentCharacter then
         Notifications.send("Aucun personnage actif.", "warning")
         return
     end
@@ -27,7 +29,7 @@ end, false)
 
 -- /withdraw <montant> — retirer de l'argent
 RegisterCommand("withdraw", function(source, args)
-    if not Character.current then
+    if not Client.currentCharacter then
         Notifications.send("Aucun personnage actif.", "warning")
         return
     end
@@ -43,7 +45,7 @@ end, false)
 
 -- /transfer <id> <montant> — transférer de l'argent à un joueur
 RegisterCommand("transfer", function(source, args)
-    if not Character.current then
+    if not Client.currentCharacter then
         Notifications.send("Aucun personnage actif.", "warning")
         return
     end
@@ -61,7 +63,7 @@ end, false)
 
 -- /transactions — historique des 10 dernières transactions
 RegisterCommand("transactions", function()
-    if not Character.current then
+    if not Client.currentCharacter then
         Notifications.send("Aucun personnage actif.", "warning")
         return
     end
@@ -124,5 +126,5 @@ RegisterNetEvent("union:bank:transactionsReceived", function(transactions)
         ))
     end
 
-    Notifications.send(#transactions .. " transaction(s). (voir console)", "info")
+    Notifications.send(#transactions .. " transaction(s). (voir console F8)", "info")
 end)

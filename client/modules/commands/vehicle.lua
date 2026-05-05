@@ -1,8 +1,9 @@
 -- client/modules/commands/vehicle.lua
+-- FIX : utilise Client.currentCharacter au lieu de Character.current.
 
 -- /myvehicles — liste les véhicules du personnage
 RegisterCommand("myvehicles", function()
-    if not Character.current then
+    if not Client.currentCharacter then
         Notifications.send("Aucun personnage actif.", "warning")
         return
     end
@@ -11,7 +12,7 @@ end, false)
 
 -- /spawncar <plaque> — spawner un de ses véhicules
 RegisterCommand("spawncar", function(source, args)
-    if not Character.current then
+    if not Client.currentCharacter then
         Notifications.send("Aucun personnage actif.", "warning")
         return
     end
@@ -27,7 +28,7 @@ end, false)
 
 -- /storecar — ranger le véhicule dans lequel tu es
 RegisterCommand("storecar", function()
-    if not Character.current then
+    if not Client.currentCharacter then
         Notifications.send("Aucun personnage actif.", "warning")
         return
     end
@@ -64,12 +65,14 @@ RegisterCommand("vehinfo", function()
     local bodyHealth   = math.floor(GetVehicleBodyHealth(vehicle))
     local fuel         = math.floor(GetVehicleFuelLevel(vehicle))
     local model        = GetEntityModel(vehicle)
-    local modelName    = GetDisplayNameFromVehicleModel(model)  
+    local modelName    = GetDisplayNameFromVehicleModel(model)
     local dirt_level   = math.floor(GetVehicleDirtLevel(vehicle))
 
     Notifications.send(
-        string.format("Plaque: %s | Moteur: %s | Carrosserie: %s | Carburant: %s%% | Modèle: %s | Saleté: %s%%",
-            plate, engineHealth, bodyHealth, fuel, modelName, dirt_level),
+        string.format(
+            "Plaque: %s | Moteur: %s | Carrosserie: %s | Carburant: %s%% | Modèle: %s | Saleté: %s%%",
+            plate, engineHealth, bodyHealth, fuel, modelName, dirt_level
+        ),
         "info"
     )
 end, false)
@@ -85,12 +88,12 @@ RegisterNetEvent("union:vehicle:listReceived", function(vehicles)
     for _, v in ipairs(vehicles) do
         local stored = v.stored == 1 and "^3[GARÉ]^7" or "^2[SORTI]^7"
         print(string.format(
-            "  %s ^3%s^7 — Modèle: %s | Moteur: %.0f | Carburant: %.0f%%",
+            "  %s ^3%s^7 — Modèle : %s | Moteur : %.0f | Carburant : %.0f%%",
             stored, v.plate, v.vehicle_model, v.engine_health, v.fuel
         ))
     end
 
-    Notifications.send(#vehicles .. " véhicule(s). (voir console)", "info")
+    Notifications.send(#vehicles .. " véhicule(s). (voir console F8)", "info")
 end)
 
 RegisterNetEvent("union:vehicle:spawnResult", function(success, plate)

@@ -1,45 +1,21 @@
 -- server/modules/permission/main.lua
--- FIX #8 : ajout de "admin.vehicle" dans les groupes admin/founder
+-- FIX : suppression de la double définition de PermissionSystem.groups.
+--       On délègue maintenant à PermissionGroups (source unique de vérité).
+--       Plus de divergence entre les deux fichiers.
 
 PermissionSystem = {}
 PermissionSystem.logger = Logger:child("PERMISSION")
-PermissionSystem.cache = {}
-
-PermissionSystem.groups = {
-    user = {},
-    moderator = {
-        "admin.healrevive",
-        "admin.kick",
-    },
-    admin = {
-        "admin.all",
-        "admin.healrevive",
-        "admin.kick",
-        "admin.ban",
-        "admin.vehicle",   -- FIX #8
-        "character.delete",
-        "job.set",
-    },
-    founder = {
-        "admin.all",
-    }
-}
+PermissionSystem.cache  = {}
 
 function PermissionSystem.hasPermission(source, permission)
     local player = PlayerManager.get(source)
     if not player then return false end
 
+    -- founder a toujours tout
     if player.group == "founder" then return true end
 
-    local groupPerms = PermissionSystem.groups[player.group] or {}
-
-    for _, perm in ipairs(groupPerms) do
-        if perm == permission or perm == "admin.all" then
-            return true
-        end
-    end
-
-    return false
+    -- Délègue à PermissionGroups (source unique)
+    return PermissionGroups.hasGroupPermission(player.group, permission)
 end
 
 function PermissionSystem.canExecute(source, permission)
@@ -56,42 +32,42 @@ function PermissionSystem.setPlayerGroup(source, group)
     local player = PlayerManager.get(source)
     if not player then return false end
 
-    if not PermissionSystem.groups[group] then
-        PermissionSystem.logger:warn("Invalid group: " .. group)
+    if not PermissionGroups.defaults[group] then
+        PermissionSystem.logger:warn("Groupe invalide : " .. tostring(group))
         return false
     end
 
     Database.execute(
         "UPDATE users SET `group` = ? WHERE id = ?",
-        {group, player.userId},
+        { group, player.userId },
         function(result)
             if result then
                 player.group = group
-                PermissionSystem.logger:info("Group set for " .. player.name .. ": " .. group)
-                return true
+                PermissionSystem.logger:info("Groupe mis à jour pour " .. player.name .. " : " .. group)
             end
         end
     )
 
-    return false
+    return true
 end
 
 function PermissionSystem.addPermissionToGroup(group, permission)
-    if not PermissionSystem.groups[group] then
-        PermissionSystem.groups[group] = {}
+    local info = PermissionGroups.defaults[group]
+    if not info then
+        PermissionGroups.defaults[group] = { displayName = group, level = 0, permissions = {} }
+        info = PermissionGroups.defaults[group]
     end
-
-    table.insert(PermissionSystem.groups[group], permission)
-    PermissionSystem.logger:info("Permission added to group " .. group .. ": " .. permission)
+    table.insert(info.permissions, permission)
+    PermissionSystem.logger:info("Permission ajoutée au groupe " .. group .. " : " .. permission)
 end
 
 function PermissionSystem.removePermissionFromGroup(group, permission)
-    if not PermissionSystem.groups[group] then return end
-
-    for i, perm in ipairs(PermissionSystem.groups[group]) do
+    local info = PermissionGroups.defaults[group]
+    if not info then return end
+    for i, perm in ipairs(info.permissions) do
         if perm == permission then
-            table.remove(PermissionSystem.groups[group], i)
-            PermissionSystem.logger:info("Permission removed from group " .. group .. ": " .. permission)
+            table.remove(info.permissions, i)
+            PermissionSystem.logger:info("Permission retirée du groupe " .. group .. " : " .. permission)
             return
         end
     end
@@ -106,11 +82,10 @@ end)
 RegisterCommand("mygroup", function(source)
     local player = PlayerManager.get(source)
     if not player then return end
-
     TriggerClientEvent("chat:addMessage", source, {
-        color = {100, 255, 100},
+        color     = { 100, 255, 100 },
         multiline = true,
-        args = {"[GROUP]", "Your group: " .. player.group}
+        args      = { "[GROUP]", "Votre groupe : " .. player.group }
     })
 end)
 

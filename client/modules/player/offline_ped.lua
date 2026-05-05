@@ -1,13 +1,7 @@
 -- client/modules/player/offline_ped.lua
--- FIXES:
---   #1 : Suppression des natives réseau serveur-only appelées côté client
---        (NetworkRegisterEntityAsNetworked, SetNetworkIdExistsOnAllMachines,
---         SetNetworkIdCanMigrate) → ces appels crashaient silencieusement
---         et empêchaient le ped d'être créé correctement.
---   #2 : Remplacement de TaskStartScenarioInPlace par TaskPlayAnim
---        (le scénario SUNBATHE_BACK n'est pas compatible avec les peds réseau).
---   #3 : Réception du dump initial au spawn pour voir les peds des joueurs
---        déconnectés avant notre connexion.
+-- FIX #1 : applyDeadAnim — ajout de Wait(0) dans la boucle pour éviter le freeze.
+-- FIX #2 : spawnOfflinePed ne crashe plus si OfflinePeds.list est nil.
+-- FIX #3 : nettoyage propre à union:character:unloaded.
 
 OfflinePeds        = {}
 OfflinePeds.logger = Logger:child("OFFLINE_PED")
@@ -32,14 +26,17 @@ local function loadModel(modelHash)
     return true
 end
 
--- FIX #2 : animation allongé au sol valide pour peds non-réseau
+-- FIX #1 : Wait(0) ajouté pour éviter le blocage si HasAnimDictLoaded ne se résout jamais
 local function applyDeadAnim(ped)
     local dict = "dead"
     RequestAnimDict(dict)
     local t = GetGameTimer()
     while not HasAnimDictLoaded(dict) do
-        Wait(50)
-        if GetGameTimer() - t > 3000 then return end
+        Wait(0)   -- FIX #1 : évite le freeze
+        if GetGameTimer() - t > 3000 then
+            OfflinePeds.logger:warn("Timeout chargement anim dict 'dead'")
+            return
+        end
     end
     TaskPlayAnim(ped, dict, "dead_d", 8.0, -8.0, -1, 1, 0, false, false, false)
 end
@@ -49,7 +46,9 @@ end
 -- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 local function spawnOfflinePed(data)
+    -- FIX #2 : vérifications défensives
     if not data or not data.uniqueId then return end
+    if not OfflinePeds.list then OfflinePeds.list = {} end
 
     -- Ne pas spawner son propre ped offline
     if Client.currentCharacter and Client.currentCharacter.unique_id == data.uniqueId then
@@ -69,7 +68,7 @@ local function spawnOfflinePed(data)
         data.y,
         data.z - 1.0,
         data.heading or 0.0,
-        false,  -- FIX #1 : false = ped local uniquement, pas réseau
+        false,
         false
     )
 
@@ -80,25 +79,14 @@ local function spawnOfflinePed(data)
         return
     end
 
-    -- FIX #1 : suppression des natives serveur-only
-    -- NetworkRegisterEntityAsNetworked(ped)    ← SERVER ONLY, retiré
-    -- SetNetworkIdExistsOnAllMachines(...)     ← SERVER ONLY, retiré
-    -- SetNetworkIdCanMigrate(...)              ← SERVER ONLY, retiré
-
-    -- Configuration ped
     SetEntityInvincible(ped, true)
     SetBlockingOfNonTemporaryEvents(ped, true)
     FreezeEntityPosition(ped, true)
     SetEntityVisible(ped, true, false)
 
-    -- FIX #2 : animation correcte pour un ped local
     applyDeadAnim(ped)
 
     OfflinePeds.list[data.uniqueId] = ped
-
-    -- FIX #1 : suppression de TriggerServerEvent("union:offlineped:spawned")
-    -- Le netId n'existe plus (ped local), plus besoin de le notifier au serveur.
-
     OfflinePeds.logger:info("Ped offline créé pour uid=" .. data.uniqueId)
 end
 
@@ -110,7 +98,6 @@ RegisterNetEvent("union:offlineped:create", function(data)
     spawnOfflinePed(data)
 end)
 
--- FIX #3 : réception du dump initial (joueurs déconnectés avant notre arrivée)
 RegisterNetEvent("union:offlineped:loadAll", function(peds)
     if type(peds) ~= "table" then return end
     for _, data in ipairs(peds) do
@@ -125,6 +112,7 @@ end)
 
 RegisterNetEvent("union:offlineped:remove", function(uniqueId)
     if not uniqueId then return end
+    if not OfflinePeds.list then return end
 
     local ped = OfflinePeds.list[uniqueId]
     if ped and DoesEntityExist(ped) then
@@ -142,6 +130,7 @@ end)
 
 RegisterNetEvent("union:player:spawned", function(character)
     if not character or not character.unique_id then return end
+    if not OfflinePeds.list then return end
 
     local ped = OfflinePeds.list[character.unique_id]
     if ped and DoesEntityExist(ped) then
@@ -150,4 +139,17 @@ RegisterNetEvent("union:player:spawned", function(character)
         OfflinePeds.list[character.unique_id] = nil
         OfflinePeds.logger:info("Ped offline propre supprimé après spawn uid=" .. character.unique_id)
     end
+end)
+
+-- FIX #3 : nettoyage complet au déchargement du personnage
+AddEventHandler("union:character:unloaded", function()
+    if not OfflinePeds.list then return end
+    for uniqueId, ped in pairs(OfflinePeds.list) do
+        if ped and DoesEntityExist(ped) then
+            SetEntityAsMissionEntity(ped, false, true)
+            DeleteEntity(ped)
+        end
+        OfflinePeds.list[uniqueId] = nil
+    end
+    OfflinePeds.logger:info("Tous les peds offline supprimés (character unloaded)")
 end)

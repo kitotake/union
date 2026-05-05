@@ -1,6 +1,7 @@
 -- server/modules/permission/groups.lua
--- FIX #8 : ajout de "admin.vehicle" dans les groupes admin/founder
---           pour les nouvelles vérifications granulaires dans commands/admin.lua
+-- FIX : suppression de la double définition entre groups.lua et main.lua.
+--       Ce fichier est la SOURCE UNIQUE des groupes et permissions.
+--       main.lua lit PermissionGroups.defaults au lieu de redéfinir PermissionSystem.groups.
 
 PermissionGroups = {}
 PermissionGroups.logger = Logger:child("PERMISSION:GROUPS")
@@ -9,16 +10,17 @@ PermissionGroups.defaults = {
     founder = {
         displayName = "Founder",
         level = 3,
-        permissions = {"admin.all"}
+        permissions = { "admin.all" }
     },
     admin = {
         displayName = "Administrator",
         level = 2,
         permissions = {
+            "admin.all",
             "admin.kick",
             "admin.ban",
             "admin.healrevive",
-            "admin.vehicle",   -- FIX #8 : permission véhicules admin
+            "admin.vehicle",
             "character.delete",
             "job.set",
         }
@@ -29,7 +31,7 @@ PermissionGroups.defaults = {
         permissions = {
             "admin.healrevive",
             "admin.kick",
-            -- FIX #8 : les modérateurs n'ont PAS admin.vehicle ni admin.all
+            -- Les modérateurs n'ont PAS admin.vehicle ni admin.all
         }
     },
     user = {
@@ -48,13 +50,11 @@ function PermissionGroups.getAllGroups()
 end
 
 function PermissionGroups.getGroupLevel(groupName)
-    local info = PermissionGroups.getGroupInfo(groupName)
-    return info.level
+    return PermissionGroups.getGroupInfo(groupName).level
 end
 
 function PermissionGroups.getGroupPermissions(groupName)
-    local info = PermissionGroups.getGroupInfo(groupName)
-    return info.permissions or {}
+    return PermissionGroups.getGroupInfo(groupName).permissions or {}
 end
 
 function PermissionGroups.hasGroupPermission(groupName, permission)

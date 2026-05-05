@@ -1,9 +1,7 @@
 -- bridge/client/kt_hud.lua
--- Bridge client vers kt_hud
--- FIX : SendNUIMessage depuis "union" échoue (union n'a pas de frame NUI).
---       La solution correcte est de déléguer l'envoi à kt_hud lui-même
---       via un event local client (TriggerEvent = même process, pas de réseau).
---       kt_hud/client/main.lua doit enregistrer "kt_hud:sendNui".
+-- FIX #1 : hudThread reset propre si kt_hud redémarre.
+-- FIX #2 : sendToNui vérifie que le thread ne tourne pas déjà avant d'en créer un.
+-- FIX #3 : Bridge.Hud._startThread garde en mémoire si le thread est actif.
 
 Bridge.Hud = Bridge.create("kt_hud")
 Bridge.register("kt_hud", Bridge.Hud)
@@ -54,7 +52,7 @@ local function collectHudData()
 
         inVehicle    = inVeh,
         speed        = inVeh and math.floor(GetEntitySpeed(vehicle) * 3.6) or 0,
-        fuel         = inVeh and math.floor(GetVehicleFuelLevel(vehicle))  or 0,
+        fuel         = inVeh and math.floor(GetVehicleFuelLevel(vehicle)) or 0,
         rpm          = inVeh and math.floor((GetVehicleCurrentRpm(vehicle) or 0) * 100) / 100 or 0,
         gear         = inVeh and GetVehicleCurrentGear(vehicle) or 0,
         engineHealth = inVeh and math.floor(GetVehicleEngineHealth(vehicle)) or 0,
@@ -62,18 +60,7 @@ local function collectHudData()
 end
 
 -- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- ENVOI — délégué à kt_hud via event local
---
--- POURQUOI :
---   SendNUIMessage() n'est valable QUE dans la ressource qui déclare
---   ui_page dans son fxmanifest.lua. Depuis "union", appeler
---   SendNUIMessage envoie à la frame NUI de "union" (qui n'existe pas)
---   → erreur "resource union has no UI frame".
---
--- SOLUTION :
---   On déclenche un event local (même client, zéro latence réseau).
---   kt_hud/client/main.lua écoute "kt_hud:sendNui" et fait lui-même
---   le SendNUIMessage dans son propre contexte → ça fonctionne.
+-- ENVOI NUI — délégué à kt_hud via event local
 -- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 local function sendToNui(action, data)
@@ -121,10 +108,12 @@ function Bridge.Hud.hide()
     if not Bridge.Hud:isAvailable() then return end
     sendToNui("setVisible", { visible = false })
     hudActive = false
+    -- FIX #1 : hudThread sera remis à false par le thread lui-même
 end
 
 -- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 -- THREAD
+-- FIX #2 : vérification stricte avant création
 -- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 function Bridge.Hud._startThread()
@@ -138,6 +127,7 @@ function Bridge.Hud._startThread()
             end
             Wait(UPDATE_DELAY)
         end
+        -- FIX #1 : reset propre quand le thread se termine
         hudThread = false
     end)
 end
@@ -170,8 +160,10 @@ AddEventHandler("onResourceStart", function(r)
     end
 end)
 
+-- FIX #1 : reset complet si kt_hud s'arrête
 AddEventHandler("onResourceStop", function(r)
     if r == "kt_hud" then
         hudActive = false
+        hudThread = false   -- FIX #1 : le thread est mort avec la ressource
     end
 end)
