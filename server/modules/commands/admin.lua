@@ -1,12 +1,9 @@
 -- server/modules/commands/admin.lua
--- FIX #7 : suppression de la double définition de hasPerm (code mort)
--- FIX #8 : permissions granulaires selon la commande
-
--- Permissions utilisées :
---   "admin.healrevive" → heal, revive, revivezone
---   "admin.kick"       → bring, goto, spectate, taginfo
---   "admin.vehicle"    → car, dv, dvzone, fix, boost, spawnnpc
---   "admin.all"        → tp, tpm (téléportation directe = plus dangereux)
+-- FIXES:
+--   #1 : /revivezone et /dvzone calculent la distance côté SERVEUR
+--        (avec GetEntityCoords) au lieu de déléguer au client.
+--        Un client malveillant ne peut plus falsifier la zone.
+--   #2 : permissions inchangées (conservées du fichier original).
 
 local function hasPermHeal(src)
     if src == 0 then return true end
@@ -20,7 +17,6 @@ local function hasPermKick(src)
     return player and player:hasPermission("admin.kick")
 end
 
--- FIX #8 : permission dédiée aux véhicules (évite que les modos puissent spawner des voitures)
 local function hasPermVehicle(src)
     if src == 0 then return true end
     local player = PlayerManager.get(src)
@@ -37,9 +33,7 @@ local function notify(src, msg)
     if src == 0 then
         print("[ADMIN] " .. msg)
     else
-        TriggerClientEvent("chat:addMessage", src, {
-            args = { "^3ADMIN", msg }
-        })
+        TriggerClientEvent("chat:addMessage", src, { args = { "^3ADMIN", msg } })
     end
 end
 
@@ -52,13 +46,9 @@ end
 -----------------------------------------
 RegisterCommand("heal", function(source, args)
     local src = source
-    if not hasPermHeal(src) then
-        notify(src, "Permission refusée.")
-        return
-    end
+    if not hasPermHeal(src) then notify(src, "Permission refusée.") return end
 
     local target = args[1]
-
     if target == "all" then
         for _, id in ipairs(getPlayers()) do
             TriggerClientEvent("admin:heal:client", tonumber(id))
@@ -77,13 +67,9 @@ end)
 -----------------------------------------
 RegisterCommand("revive", function(source, args)
     local src = source
-    if not hasPermHeal(src) then
-        notify(src, "Permission refusée.")
-        return
-    end
+    if not hasPermHeal(src) then notify(src, "Permission refusée.") return end
 
     local target = args[1]
-
     if target == "all" then
         for _, id in ipairs(getPlayers()) do
             TriggerClientEvent("admin:revive:client", tonumber(id))
@@ -98,29 +84,48 @@ RegisterCommand("revive", function(source, args)
 end)
 
 -----------------------------------------
--- REVIVE ZONE
+-- REVIVE ZONE — FIX #1 : calcul serveur
 -----------------------------------------
 RegisterCommand("revivezone", function(source, args)
     local src = source
-    if not hasPermHeal(src) then
-        notify(src, "Permission refusée.")
+    if not hasPermHeal(src) then notify(src, "Permission refusée.") return end
+
+    local radius = tonumber(args[1]) or 10.0
+
+    -- Récupérer la position de l'admin côté serveur
+    local adminPed    = GetPlayerPed(src)
+    local adminCoords = GetEntityCoords(adminPed)
+
+    if not adminCoords then
+        notify(src, "Impossible de récupérer votre position.")
         return
     end
 
-    local radius = tonumber(args[1]) or 10.0
-    TriggerClientEvent("admin:revivezone:client", src, radius)
-    notify(src, ("Revive zone activé (rayon: %.1f)"):format(radius))
+    local revived = 0
+    for _, playerId in ipairs(getPlayers()) do
+        local pid = tonumber(playerId)
+        if pid ~= src then
+            local ped    = GetPlayerPed(pid)
+            local coords = GetEntityCoords(ped)
+            if coords then
+                local dist = #(adminCoords - coords)
+                if dist <= radius then
+                    TriggerClientEvent("admin:revive:client", pid)
+                    revived = revived + 1
+                end
+            end
+        end
+    end
+
+    notify(src, ("Revive zone (rayon: %.1fm) — %d joueur(s) revivés."):format(radius, revived))
 end)
 
 -----------------------------------------
--- BRING (ramener target vers admin)
+-- BRING
 -----------------------------------------
 RegisterCommand("bring", function(source, args)
     local src = source
-    if not hasPermKick(src) then
-        notify(src, "Permission refusée.")
-        return
-    end
+    if not hasPermKick(src) then notify(src, "Permission refusée.") return end
 
     local target = tonumber(args[1])
     if not target then return end
@@ -130,14 +135,11 @@ RegisterCommand("bring", function(source, args)
 end)
 
 -----------------------------------------
--- GOTO (admin vers joueur)
+-- GOTO
 -----------------------------------------
 RegisterCommand("goto", function(source, args)
     local src = source
-    if not hasPermKick(src) then
-        notify(src, "Permission refusée.")
-        return
-    end
+    if not hasPermKick(src) then notify(src, "Permission refusée.") return end
 
     local target = tonumber(args[1])
     if not target then return end
@@ -151,10 +153,7 @@ end)
 -----------------------------------------
 RegisterCommand("spectate", function(source, args)
     local src = source
-    if not hasPermKick(src) then
-        notify(src, "Permission refusée.")
-        return
-    end
+    if not hasPermKick(src) then notify(src, "Permission refusée.") return end
 
     local target = tonumber(args[1])
     if not target then return end
@@ -164,14 +163,11 @@ RegisterCommand("spectate", function(source, args)
 end)
 
 -----------------------------------------
--- TP (teleport coords) — FIX #8 : admin.all requis
+-- TP
 -----------------------------------------
 RegisterCommand("tp", function(source, args)
     local src = source
-    if not hasPermTP(src) then
-        notify(src, "Permission refusée.")
-        return
-    end
+    if not hasPermTP(src) then notify(src, "Permission refusée.") return end
 
     local x = tonumber(args[1])
     local y = tonumber(args[2])
@@ -186,95 +182,93 @@ RegisterCommand("tp", function(source, args)
 end)
 
 -----------------------------------------
--- TPM (teleport waypoint GPS) — FIX #8 : admin.all requis
+-- TPM
 -----------------------------------------
 RegisterCommand("tpm", function(source)
     local src = source
-    if not hasPermTP(src) then
-        notify(src, "Permission refusée.")
-        return
-    end
-
+    if not hasPermTP(src) then notify(src, "Permission refusée.") return end
     TriggerClientEvent("admin:tpm:client", src)
 end)
 
 -----------------------------------------
--- CAR — FIX #8 : admin.vehicle (admin.all) requis
+-- CAR
 -----------------------------------------
 RegisterCommand("car", function(source, args)
     local src = source
-    if not hasPermVehicle(src) then
-        notify(src, "Permission refusée.")
-        return
-    end
+    if not hasPermVehicle(src) then notify(src, "Permission refusée.") return end
 
     local model = args[1]
-    if not model then
-        notify(src, "Usage: /car model")
-        return
-    end
+    if not model then notify(src, "Usage: /car model") return end
 
     TriggerClientEvent("admin:car:client", src, model)
 end)
 
 -----------------------------------------
--- DV — FIX #8 : admin.vehicle requis
+-- DV
 -----------------------------------------
 RegisterCommand('dv', function(source)
     local src = source
-    if not hasPermVehicle(src) then
-        notify(src, "Permission refusée.")
-        return
-    end
-
+    if not hasPermVehicle(src) then notify(src, "Permission refusée.") return end
     TriggerClientEvent("admin:dv:client", src)
     notify(src, "Véhicule supprimé.")
 end)
 
+-----------------------------------------
+-- DVZONE — FIX #1 : calcul serveur
+-----------------------------------------
 RegisterCommand('dvzone', function(source, args)
     local src = source
-    if not hasPermVehicle(src) then
-        notify(src, "Permission refusée.")
+    if not hasPermVehicle(src) then notify(src, "Permission refusée.") return end
+
+    local radius = tonumber(args[1]) or 10.0
+
+    local adminPed    = GetPlayerPed(src)
+    local adminCoords = GetEntityCoords(adminPed)
+
+    if not adminCoords then
+        notify(src, "Impossible de récupérer votre position.")
         return
     end
 
-    local radius = tonumber(args[1]) or 10.0
-    TriggerClientEvent("admin:dvzone:client", src, radius)
-    notify(src, ("DV zone activé (rayon: %.1f)"):format(radius))
+    local deleted = 0
+    -- Récupérer tous les véhicules du monde
+    local vehicles = GetAllVehicles()
+    for _, vehicle in ipairs(vehicles) do
+        if DoesEntityExist(vehicle) then
+            local vCoords = GetEntityCoords(vehicle)
+            if vCoords then
+                local dist = #(adminCoords - vCoords)
+                if dist <= radius then
+                    DeleteEntity(vehicle)
+                    deleted = deleted + 1
+                end
+            end
+        end
+    end
+
+    notify(src, ("DV zone (rayon: %.1fm) — %d véhicule(s) supprimé(s)."):format(radius, deleted))
 end)
 
 -----------------------------------------
--- FIX — FIX #8 : admin.vehicle requis
+-- FIX
 -----------------------------------------
 RegisterCommand('fix', function(source)
     local src = source
-    if not hasPermVehicle(src) then
-        notify(src, "Permission refusée.")
-        return
-    end
-
+    if not hasPermVehicle(src) then notify(src, "Permission refusée.") return end
     TriggerClientEvent("admin:fix:client", src)
     notify(src, "Véhicule réparé.")
 end)
 
 RegisterCommand('boost', function(source)
     local src = source
-    if not hasPermVehicle(src) then
-        notify(src, "Permission refusée.")
-        return
-    end
-
+    if not hasPermVehicle(src) then notify(src, "Permission refusée.") return end
     TriggerClientEvent("admin:boost:client", src)
     notify(src, "Véhicule boosté.")
 end)
 
 RegisterCommand('spawnnpc', function(source)
     local src = source
-    if not hasPermVehicle(src) then
-        notify(src, "Permission refusée.")
-        return
-    end
-
+    if not hasPermVehicle(src) then notify(src, "Permission refusée.") return end
     TriggerClientEvent('admin:spawnnpc:client', src)
     notify(src, "Spawn NPC devant toi.")
 end)

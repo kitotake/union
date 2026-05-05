@@ -1,7 +1,9 @@
 -- server/components/utils.lua
--- FIX #8  : notifyPlayer utilise toujours "src" pour éviter la confusion avec la globale source.
--- FIX #15 : generateUniqueId nettoyé — le check "^chr_" était du code mort
---            car la fonction génère toujours un ID numérique (jamais préfixé).
+-- FIXES:
+--   #1 : generateUniqueId() vérifie l'unicité en base avant de retourner l'ID.
+--        Évite (certes rare mais catastrophique) la collision de unique_id.
+--   #2 : Version async avec callback pour usage dans Character.create().
+--   #3 : Version sync conservée pour compatibilité (sans vérification DB — usage interne uniquement).
 
 ServerUtils = {}
 
@@ -27,18 +29,44 @@ function ServerUtils.getIdentifier(source, idType)
     end
 end
 
--- FIX #15 : check "^chr_" supprimé — code mort (l'ID généré est toujours numérique)
+-- FIX #3 : version sync sans vérification DB (usage interne / non-critique)
 function ServerUtils.generateUniqueId(length)
     length = length or 12
     local chars = "0123456789"
     local id = ""
-
     for i = 1, length do
         local rand = math.random(#chars)
         id = id .. chars:sub(rand, rand)
     end
-
     return "chr_" .. id
+end
+
+-- FIX #1 + #2 : version async avec vérification d'unicité en base
+-- Callback reçoit l'ID unique garanti, ou nil si trop de tentatives échouent.
+function ServerUtils.generateUniqueIdSafe(callback, length, _attempt)
+    length   = length or 12
+    _attempt = _attempt or 1
+
+    if _attempt > 10 then
+        print("^1[ServerUtils] generateUniqueIdSafe: impossible de générer un ID unique après 10 tentatives^0")
+        if callback then callback(nil) end
+        return
+    end
+
+    local id = ServerUtils.generateUniqueId(length)
+
+    exports.oxmysql:scalar(
+        "SELECT unique_id FROM characters WHERE unique_id = ? LIMIT 1",
+        { id },
+        function(existing)
+            if existing then
+                -- Collision → retenter
+                ServerUtils.generateUniqueIdSafe(callback, length, _attempt + 1)
+            else
+                if callback then callback(id) end
+            end
+        end
+    )
 end
 
 exports('generateUniqueId', function(len)
@@ -57,7 +85,6 @@ function ServerUtils.validateDate(date)
     return true
 end
 
--- FIX : si source est 0 (console) ou nil → print dans la console au lieu de TriggerClientEvent
 function ServerUtils.notifyPlayer(src, message, type, duration)
     type     = type     or "info"
     duration = duration or 3000

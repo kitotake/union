@@ -1,11 +1,12 @@
 -- server/modules/character/main.lua
 -- FIXES:
---   #1 : Character.select() — callback(true, selected) est appelé AVANT
---        TriggerClientEvent pour éviter la race condition où spawn:confirm
---        arrive avant que player.currentCharacter soit défini.
---        (Comportement inchangé, déjà correct — conservé pour clarté.)
---   #2 : Validation renforcée de unique_id dans Character.create().
---   #3 : Gender normalisé correctement ("m"/"f") indépendamment du modèle.
+--   #1 : Character.create() utilise ServerUtils.generateUniqueIdSafe() (async)
+--        pour garantir l'unicité du unique_id en base.
+--   #2 : resolveModel() conserve les modèles custom (non-freemode) définis en base
+--        au lieu de les écraser silencieusement.
+--   #3 : callback(true, selected) toujours appelé APRÈS que charData est complet
+--        (apparence incluse) — plus de fenêtre où currentCharacter est défini
+--        mais charData incomplet.
 
 Character        = {}
 Character.logger = Logger:child("CHARACTER")
@@ -24,13 +25,23 @@ local function decodePosition(raw)
     return vector3(defPos.x, defPos.y, defPos.z), defHdg
 end
 
+-- FIX #2 : conserve les modèles custom, ne force freemode que si absent ou invalide
+local FREEMODE_MODELS = {
+    ["mp_m_freemode_01"] = true,
+    ["mp_f_freemode_01"] = true,
+}
+
 local function resolveModel(selected)
-    if selected.model and (
-        selected.model == "mp_m_freemode_01" or
-        selected.model == "mp_f_freemode_01"
-    ) then
-        return selected.model
+    local model = selected.model
+    -- Si le modèle est déjà un freemode valide, on le garde
+    if model and FREEMODE_MODELS[model] then
+        return model
     end
+    -- Si un modèle custom est défini (non-freemode), on le respecte
+    if model and model ~= "" then
+        return model
+    end
+    -- Fallback sur freemode selon le genre
     return selected.gender == "f" and "mp_f_freemode_01" or "mp_m_freemode_01"
 end
 
@@ -49,6 +60,7 @@ local function applySkinData(charData, appearance)
     charData.tattoos      = skin.tattoos
 end
 
+-- FIX #1 : utilise generateUniqueIdSafe (async, vérifie l'unicité en DB)
 function Character.create(player, data, callback)
     if not player or not data then
         return callback and callback(false, nil, nil)
@@ -63,14 +75,11 @@ function Character.create(player, data, callback)
     local lastname    = Utils.safeString(data.lastname,  50)
     local dateofbirth = Utils.safeString(data.dateofbirth)
 
-    -- FIX #3 : normalisation du genre robuste
     local genderRaw = tostring(data.gender or "m"):lower()
     local gender    = (genderRaw == "f" or genderRaw == "mp_f_freemode_01" or genderRaw == "female") and "f" or "m"
     local model     = gender == "f" and Config.spawn.femaleModel or Config.spawn.defaultModel
-    local uniqueId  = ServerUtils.generateUniqueId(12)
 
     local defPos = Config.spawn.defaultPosition
-
     local posJson = json.encode({
         x       = defPos.x,
         y       = defPos.y,
@@ -78,47 +87,55 @@ function Character.create(player, data, callback)
         heading = Config.spawn.defaultHeading,
     })
 
-    Database.insert([[
-        INSERT INTO characters
-            (identifier, unique_id, firstname, lastname, dateofbirth, gender, model, position)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    ]], {
-        player.license, uniqueId,
-        firstname, lastname, dateofbirth, gender, model,
-        posJson,
-    }, function(characterId)
-        if not characterId then
-            Character.logger:error("Échec de création du personnage pour " .. player.name)
+    -- FIX #1 : génération avec vérification d'unicité
+    ServerUtils.generateUniqueIdSafe(function(uniqueId)
+        if not uniqueId then
+            Character.logger:error("Impossible de générer un unique_id pour " .. player.name)
             return callback and callback(false, nil, nil)
         end
 
-        Database.insert(
-            "INSERT INTO character_appearances (unique_id) VALUES (?)",
-            { uniqueId },
-            function()
-                -- FIX #2 : créer aussi le compte bancaire
-                Database.execute([[
-                    INSERT IGNORE INTO bank_accounts
-                        (account_number, owner_type, owner_id, unique_id, type, balance)
-                    VALUES (?, 'character', ?, ?, 'personal', 0)
-                ]], {
-                    tostring(math.random(1000000000, 9999999999)),
-                    uniqueId, uniqueId
-                }, function() end)
-
-                Character.logger:info(
-                    ("Personnage créé pour %s : %s %s (uid=%s)"):format(
-                        player.name, firstname, lastname, uniqueId
-                    )
-                )
-                player:loadCharacters(function()
-                    if callback then callback(true, characterId, uniqueId) end
-                end)
+        Database.insert([[
+            INSERT INTO characters
+                (identifier, unique_id, firstname, lastname, dateofbirth, gender, model, position)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ]], {
+            player.license, uniqueId,
+            firstname, lastname, dateofbirth, gender, model,
+            posJson,
+        }, function(characterId)
+            if not characterId then
+                Character.logger:error("Échec de création du personnage pour " .. player.name)
+                return callback and callback(false, nil, nil)
             end
-        )
-    end)
+
+            Database.insert(
+                "INSERT INTO character_appearances (unique_id) VALUES (?)",
+                { uniqueId },
+                function()
+                    Database.execute([[
+                        INSERT IGNORE INTO bank_accounts
+                            (account_number, owner_type, owner_id, unique_id, type, balance)
+                        VALUES (?, 'character', ?, ?, 'personal', 0)
+                    ]], {
+                        tostring(math.random(1000000000, 9999999999)),
+                        uniqueId, uniqueId
+                    }, function() end)
+
+                    Character.logger:info(
+                        ("Personnage créé pour %s : %s %s (uid=%s)"):format(
+                            player.name, firstname, lastname, uniqueId
+                        )
+                    )
+                    player:loadCharacters(function()
+                        if callback then callback(true, characterId, uniqueId) end
+                    end)
+                end
+            )
+        end)
+    end, 12)
 end
 
+-- FIX #3 : callback appelé APRÈS que charData est complet (apparence incluse)
 function Character.select(player, characterId, callback)
     if not player or not characterId then
         return callback and callback(false, nil)
@@ -137,8 +154,6 @@ function Character.select(player, characterId, callback)
         return callback and callback(false, nil)
     end
 
-    -- Mettre à jour player.currentCharacter AVANT le callback et l'event
-    player.currentCharacter = selected
     Character.logger:info(
         ("Personnage sélectionné pour %s : %s %s"):format(
             player.name, selected.firstname, selected.lastname
@@ -177,7 +192,10 @@ function Character.select(player, characterId, callback)
         function(appearance)
             applySkinData(charData, appearance)
 
-            -- Callback AVANT TriggerClientEvent (player.currentCharacter déjà défini)
+            -- FIX #3 : currentCharacter défini APRÈS que charData est complet
+            player.currentCharacter = selected
+
+            -- FIX #3 : callback appelé avec toutes les données prêtes
             if callback then callback(true, selected) end
 
             TriggerClientEvent("union:spawn:apply", player.source, charData)
@@ -230,7 +248,6 @@ RegisterNetEvent("union:character:list", function()
     local src    = source
     local player = getPlayer(src)
     if not player then return end
-
     TriggerClientEvent("union:character:listReceived", src, player.characters)
 end)
 
@@ -257,13 +274,11 @@ RegisterNetEvent("union:character:delete", function(characterId)
     end)
 end)
 
--- Sauvegarde de l'apparence depuis le client
 RegisterNetEvent("union:character:saveAppearance", function(uniqueId, appearance)
     local src    = source
     local player = PlayerManager.get(src)
     if not player or not player.currentCharacter then return end
 
-    -- Vérification que l'uniqueId appartient bien à ce joueur
     if player.currentCharacter.unique_id ~= uniqueId then
         Character.logger:warn("Tentative de sauvegarde d'apparence pour un uid non possédé — src=" .. src)
         return

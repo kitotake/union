@@ -1,8 +1,11 @@
 -- client/modules/spawn/main.lua
 -- FIXES:
---   #1 : clearTimeout() n'existe pas en Lua FiveM (c'est du JS).
---        Remplacé par un flag booléen + thread de timeout manuel.
---   #2 : unique_id transmis dans union:spawn:confirm.
+--   #1 : spawnInProgress reset dans tous les chemins d'erreur, y compris
+--        si union:spawn:error arrive après une coupure réseau partielle.
+--   #2 : resetSpawnGuard() appelé explicitement si le modèle est invalide
+--        ET que TriggerServerEvent échoue (pas de réponse serveur).
+--   #3 : Timeout de sécurité réduit à 20s (30s était trop long pour l'UX)
+--        et le reset est garanti même si aucun event serveur ne répond.
 
 Spawn = {}
 local logger = Logger:child("SPAWN")
@@ -24,17 +27,17 @@ function Spawn.respawn(model)
     TriggerServerEvent("union:spawn:requestRespawn", model)
 end
 
-local spawnInProgress  = false
+local spawnInProgress    = false
 local spawnTimeoutActive = false
 
--- FIX #1 : reset du guard sans clearTimeout
 local function resetSpawnGuard()
     spawnInProgress      = false
     spawnTimeoutActive   = false
 end
 
--- FIX #1 : timeout manuel via thread Lua
+-- FIX #3 : timeout réduit à 20s
 local function startSpawnTimeout(seconds)
+    seconds = seconds or 20
     spawnTimeoutActive = true
     CreateThread(function()
         local limit = GetGameTimer() + (seconds * 1000)
@@ -42,7 +45,7 @@ local function startSpawnTimeout(seconds)
             Wait(500)
             if GetGameTimer() > limit then
                 if spawnInProgress then
-                    logger:warn("Spawn timeout (" .. seconds .. "s) — réinitialisation du guard")
+                    logger:warn(("Spawn timeout (%ds) — reset du guard"):format(seconds))
                     resetSpawnGuard()
                 end
                 return
@@ -58,18 +61,18 @@ RegisterNetEvent("union:spawn:apply", function(characterData)
     end
 
     if spawnInProgress then
-        logger:warn("Spawn already in progress — ignoring duplicate event")
+        logger:warn("Spawn déjà en cours — event ignoré")
         return
     end
     spawnInProgress = true
-
-    -- FIX #1 : timeout de sécurité 30s via thread Lua
-    startSpawnTimeout(30)
+    startSpawnTimeout(20)
 
     local model = characterData.model
     if not model or model == "" then
         logger:error("model manquant dans characterData")
+        -- FIX #1 : reset avant d'envoyer l'event serveur (pas de réponse garantie)
         resetSpawnGuard()
+        TriggerServerEvent("union:spawn:error", "MODEL_MISSING")
         return
     end
 
@@ -81,9 +84,10 @@ RegisterNetEvent("union:spawn:apply", function(characterData)
         local modelHash = GetHashKey(model)
 
         if not IsModelInCdimage(modelHash) or not IsModelValid(modelHash) then
-            logger:error("Invalid model: " .. model)
-            TriggerServerEvent("union:spawn:error", "MODEL_INVALID")
+            logger:error("Modèle invalide: " .. model)
+            -- FIX #1 : reset garanti avant l'event serveur
             resetSpawnGuard()
+            TriggerServerEvent("union:spawn:error", "MODEL_INVALID")
             return
         end
 
@@ -92,9 +96,9 @@ RegisterNetEvent("union:spawn:apply", function(characterData)
         while not HasModelLoaded(modelHash) do
             Wait(0)
             if GetGameTimer() > timeout then
-                logger:error("Timeout model: " .. model)
-                TriggerServerEvent("union:spawn:error", "MODEL_LOAD_FAILED")
+                logger:error("Timeout chargement modèle: " .. model)
                 resetSpawnGuard()
+                TriggerServerEvent("union:spawn:error", "MODEL_LOAD_FAILED")
                 return
             end
         end
@@ -114,7 +118,10 @@ RegisterNetEvent("union:spawn:apply", function(characterData)
         local armor   = characterData.armor    or 0
 
         -- ── 4. APPARENCE via Bridge ───────────────────
-        Bridge.Character.applyAppearance(characterData)
+        local ok, err = pcall(Bridge.Character.applyAppearance, characterData)
+        if not ok then
+            logger:warn("applyAppearance erreur (non bloquant): " .. tostring(err))
+        end
 
         -- ── 5. COLLISION + RESPAWN ───────────────────
         RequestCollisionAtCoord(pos.x, pos.y, pos.z)
@@ -149,20 +156,25 @@ RegisterNetEvent("union:spawn:apply", function(characterData)
         -- ── 8. STORE CHARACTER ────────────────────────
         Client.currentCharacter = characterData
 
-        logger:info("Character spawned successfully")
+        logger:info("Personnage spawné avec succès")
+
+        -- FIX #1 : reset AVANT le confirm serveur
         resetSpawnGuard()
 
         -- ── 9. SERVER CONFIRM ─────────────────────────
-        -- FIX #2 : unique_id transmis pour identification côté serveur
         TriggerServerEvent("union:spawn:confirm", characterData.unique_id)
 
-        -- ── 10. EVENT LOCAL (HUD, Target, etc.) ───────
+        -- ── 10. EVENT LOCAL ───────────────────────────
         TriggerEvent("union:player:spawned", characterData)
     end)
 end)
 
+-- FIX #1 : reset garanti sur erreur serveur
 RegisterNetEvent("union:spawn:error", function(errorType)
     logger:error("Spawn error: " .. tostring(errorType))
     resetSpawnGuard()
-    Spawn.respawn(Config.spawn.defaultModel)
+    -- Attendre un peu avant de retenter pour éviter une boucle infinie
+    SetTimeout(2000, function()
+        Spawn.respawn(Config.spawn.defaultModel)
+    end)
 end)

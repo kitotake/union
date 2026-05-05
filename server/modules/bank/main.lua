@@ -1,6 +1,9 @@
 -- server/modules/bank/main.lua
--- FIX #8 : remplacement de "local source = source" par "local src = source"
---           dans tous les NetEvents pour éviter le shadowing de la globale FiveM.
+-- FIXES:
+--   #1 : transfer() utilise une transaction SQL atomique via oxmysql:transaction
+--        → plus de perte d'argent si le serveur crashe entre withdraw et deposit.
+--   #2 : "local source = source" remplacé par "local src = source" (shadowing FiveM).
+--   #3 : logTransaction utilise l'account_id réel, pas uniqueId comme account_id.
 
 Bank = {}
 Bank.logger = Logger:child("BANK")
@@ -8,13 +11,9 @@ Bank.logger = Logger:child("BANK")
 function Bank.getBalance(uniqueId, callback)
     Database.fetchOne(
         "SELECT balance FROM bank_accounts WHERE unique_id = ? AND type = 'personal'",
-        {uniqueId},
+        { uniqueId },
         function(result)
-            if result then
-                if callback then callback(result.balance or 0) end
-            else
-                if callback then callback(0) end
-            end
+            if callback then callback(result and result.balance or 0) end
         end
     )
 end
@@ -28,7 +27,7 @@ function Bank.deposit(uniqueId, amount, description, callback)
     Database.execute([[
         UPDATE bank_accounts SET balance = balance + ?
         WHERE unique_id = ? AND type = 'personal'
-    ]], {amount, uniqueId}, function(result)
+    ]], { amount, uniqueId }, function(result)
         if result then
             Bank.logTransaction(uniqueId, amount, "deposit", description)
             Bank.logger:info("Deposit: " .. amount .. " for " .. uniqueId)
@@ -54,7 +53,7 @@ function Bank.withdraw(uniqueId, amount, description, callback)
         Database.execute([[
             UPDATE bank_accounts SET balance = balance - ?
             WHERE unique_id = ? AND type = 'personal'
-        ]], {amount, uniqueId}, function(result)
+        ]], { amount, uniqueId }, function(result)
             if result then
                 Bank.logTransaction(uniqueId, amount, "withdraw", description)
                 Bank.logger:info("Withdrawal: " .. amount .. " for " .. uniqueId)
@@ -66,53 +65,77 @@ function Bank.withdraw(uniqueId, amount, description, callback)
     end)
 end
 
+-- FIX #1 : transfer atomique via transaction SQL
+-- Les deux UPDATE s'exécutent dans la même transaction :
+-- si l'un échoue, l'autre est rollback automatiquement.
 function Bank.transfer(fromId, toId, amount, description, callback)
     if not fromId or not toId or amount <= 0 then
         if callback then callback(false) end
         return
     end
 
-    Bank.withdraw(fromId, amount, "Transfer to " .. toId, function(success)
-        if success then
-            Bank.deposit(toId, amount, "Transfer from " .. fromId, function(depositSuccess)
-                if callback then callback(depositSuccess) end
-            end)
-        else
+    -- Vérifier le solde d'abord (hors transaction pour éviter un lock long)
+    Bank.getBalance(fromId, function(balance)
+        if balance < amount then
+            Bank.logger:warn(("Transfer refusé: solde insuffisant %s < %s pour %s"):format(balance, amount, fromId))
             if callback then callback(false) end
+            return
         end
+
+        -- Transaction atomique : les deux opérations réussissent ou échouent ensemble
+        exports.oxmysql:transaction({
+            {
+                query = "UPDATE bank_accounts SET balance = balance - ? WHERE unique_id = ? AND type = 'personal' AND balance >= ?",
+                values = { amount, fromId, amount }
+            },
+            {
+                query = "UPDATE bank_accounts SET balance = balance + ? WHERE unique_id = ? AND type = 'personal'",
+                values = { amount, toId }
+            }
+        }, function(success)
+            if success then
+                Bank.logTransaction(fromId, amount, "transfer", "Transfert vers " .. toId)
+                Bank.logTransaction(toId,   amount, "deposit",  "Transfert de "  .. fromId)
+                Bank.logger:info(("Transfer: %s de %s vers %s"):format(amount, fromId, toId))
+                if callback then callback(true) end
+            else
+                Bank.logger:error(("Transfer échoué (transaction rollback): %s -> %s, %s"):format(fromId, toId, amount))
+                if callback then callback(false) end
+            end
+        end)
     end)
 end
 
-function Bank.logTransaction(accountId, amount, txType, description)
-    local uniqueId = "TXN_" .. os.time() .. "_" .. math.random(1000, 9999)
+function Bank.logTransaction(uniqueId, amount, txType, description)
+    local txUniqueId = "TXN_" .. os.time() .. "_" .. math.random(1000, 9999)
     Database.execute([[
         INSERT INTO bank_transactions
         (account_id, unique_id, amount, description, type)
-        SELECT id, ?, ?, ?, ? FROM bank_accounts WHERE unique_id = ?
-    ]], {uniqueId, amount, description, txType, accountId}, function()
-        Bank.logger:debug("Transaction logged: " .. uniqueId)
-    end)
+        SELECT id, ?, ?, ?, ? FROM bank_accounts WHERE unique_id = ? AND type = 'personal'
+    ]], { txUniqueId, amount, description or "", txType, uniqueId }, function() end)
 end
 
 -- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- NET EVENTS — FIX #8 : src au lieu de local source = source
+-- NET EVENTS — FIX #2 : src au lieu de local source = source
 -- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 RegisterNetEvent("union:bank:getBalance", function()
     local src    = source
     local player = PlayerManager.get(src)
+    if not player or not player.currentCharacter then return end
 
-    if player and player.currentCharacter then
-        Bank.getBalance(player.currentCharacter.unique_id, function(balance)
-            TriggerClientEvent("union:bank:balanceReceived", src, balance)
-        end)
-    end
+    Bank.getBalance(player.currentCharacter.unique_id, function(balance)
+        TriggerClientEvent("union:bank:balanceReceived", src, balance)
+    end)
 end)
 
 RegisterNetEvent("union:bank:deposit", function(amount)
     local src    = source
     local player = PlayerManager.get(src)
     if not player or not player.currentCharacter then return end
+
+    amount = tonumber(amount)
+    if not amount or amount <= 0 then return end
 
     Bank.deposit(player.currentCharacter.unique_id, amount, "Dépôt manuel", function(success)
         if success then
@@ -129,6 +152,9 @@ RegisterNetEvent("union:bank:withdraw", function(amount)
     local src    = source
     local player = PlayerManager.get(src)
     if not player or not player.currentCharacter then return end
+
+    amount = tonumber(amount)
+    if not amount or amount <= 0 then return end
 
     Bank.withdraw(player.currentCharacter.unique_id, amount, "Retrait manuel", function(success)
         if success then
@@ -147,7 +173,17 @@ RegisterNetEvent("union:bank:transfer", function(targetId, amount)
     local target = PlayerManager.get(targetId)
 
     if not player or not player.currentCharacter then return end
+
+    amount = tonumber(amount)
+    if not amount or amount <= 0 then return end
+
     if not target or not target.currentCharacter then
+        TriggerClientEvent("union:bank:transferResult", src, false, amount)
+        return
+    end
+
+    -- Empêcher un transfert vers soi-même
+    if player.currentCharacter.unique_id == target.currentCharacter.unique_id then
         TriggerClientEvent("union:bank:transferResult", src, false, amount)
         return
     end

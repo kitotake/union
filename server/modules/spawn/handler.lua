@@ -1,16 +1,13 @@
 -- server/modules/spawn/handler.lua
 -- FIXES:
---   #1 : union:spawn:confirm déclenche TriggerEvent("union:player:spawned")
---        UNIQUEMENT depuis le serveur — c'est ce TriggerEvent qui notifie
---        status/manager.lua (StatusManager.load via AddEventHandler).
---   #2 : Guard ajouté pour éviter un double confirm du même joueur.
---   #3 : player.isSpawned mis à jour ici (supprimé de PlayerManager handler
---        pour éviter la dépendance à l'ordre d'exécution).
+--   #1 : _confirming[src] nettoyé dans playerDropped → plus de blocage si crash entre
+--        union:spawn:apply et union:spawn:confirm.
+--   #2 : SpawnHandler._confirming reset correctement sans dépendre du SetTimeout seul.
+--   #3 : requestInitial — guard si joueur déjà spawné (double-connect ou reconnect rapide).
 
 SpawnHandler        = {}
 SpawnHandler.logger = Logger:child("SPAWN:HANDLER")
 
--- FIX #2 : guard anti-double confirm
 SpawnHandler._confirming = {}
 
 -- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -22,6 +19,12 @@ RegisterNetEvent("union:spawn:requestInitial", function()
 
     if not player then
         SpawnHandler.logger:error("requestInitial: joueur introuvable pour source " .. src)
+        return
+    end
+
+    -- FIX #3 : si déjà spawné (reconnect rapide / double event), ignorer
+    if player.isSpawned then
+        SpawnHandler.logger:warn(("requestInitial ignoré — joueur déjà spawné src=%d"):format(src))
         return
     end
 
@@ -115,44 +118,31 @@ end)
 
 -- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 -- CONFIRMATION CLIENT → SPAWN RÉUSSI
--- FIX #1 : TriggerEvent serveur-local pour notifier status/manager.lua
---          et offline_ped via leur AddEventHandler("union:player:spawned")
--- FIX #2 : guard anti-double confirm
 -- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 RegisterNetEvent("union:spawn:confirm", function(uniqueId)
     local src    = source
     local player = PlayerManager.get(src)
     if not player then return end
 
-    -- FIX #2 : éviter le double traitement
     if SpawnHandler._confirming[src] then
         SpawnHandler.logger:warn("Double confirm ignoré pour src=" .. src)
         return
     end
     SpawnHandler._confirming[src] = true
 
-    -- FIX #3 : isSpawned mis à jour ici directement
     player.isSpawned = true
     SpawnHandler.logger:info("Spawn confirmé pour " .. player.name)
 
-    -- Supprimer le ped offline si présent
     if player.currentCharacter and player.currentCharacter.unique_id then
         if OfflinePed then
             OfflinePed.remove(player.currentCharacter.unique_id)
         end
     end
 
-    -- FIX #1 : TriggerEvent LOCAL (serveur → serveur)
-    -- Cet event est écouté par :
-    --   - status/manager.lua → StatusManager.load()
-    --   - offline_ped/server.lua → envoi du dump initial
-    --   - player/manager.lua → player.isSpawned (mais géré ici directement)
     TriggerEvent("union:player:spawned", src, player.currentCharacter)
-
-    -- Notifier le client (HUD, StateBags, etc.)
     TriggerClientEvent("union:player:spawned", src, player.currentCharacter)
 
-    -- Reset du guard après 2 secondes
+    -- FIX #2 : reset après 2s mais playerDropped nettoie aussi (voir ci-dessous)
     SetTimeout(2000, function()
         SpawnHandler._confirming[src] = nil
     end)
@@ -167,9 +157,11 @@ RegisterNetEvent("union:spawn:error", function(errorType)
     SpawnHandler._confirming[src] = nil
 end)
 
--- Nettoyage à la déconnexion
+-- FIX #1 : nettoyage complet à la déconnexion
+-- Couvre le cas où le joueur crashe entre union:spawn:apply et union:spawn:confirm
 AddEventHandler("playerDropped", function()
-    SpawnHandler._confirming[source] = nil
+    local src = source
+    SpawnHandler._confirming[src] = nil
 end)
 
 -- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
