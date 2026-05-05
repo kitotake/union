@@ -1,11 +1,4 @@
 -- server/modules/player/status/manager.lua
--- FIX ST1 : implémentation de StatusManager.flushPendingSends() (manquait totalement)
--- FIX ST2 : StatusManager.set() ne TriggerClientEvent plus directement —
---            il marque _pendingSend = true et laisse flushPendingSends() envoyer.
---            Cela évite la contradiction entre envoi direct et envoi groupé.
--- FIX ST3 : guard GetPlayerEndpoint déjà présent, renforcé.
--- FIX #4  : StatusManager.save protégée contre identifier nil (conservé).
--- FIX #5  : exports sans conflit source global (conservé).
 
 print("[STATUS] Manager chargé")
 
@@ -32,7 +25,6 @@ local function defaultStatus()
         stress       = StatusConfig.defaults.stress or 0,
         _dirty       = false,
         _uniqueId    = nil,
-        -- FIX ST1 : flag pour l'envoi groupé
         _pendingSend = false,
     }
 end
@@ -100,7 +92,19 @@ function StatusManager.load(src, uniqueId, callback)
 end
 
 function StatusManager.save(src, status, identifier)
-    if not status or not status._dirty or not status._uniqueId then return end
+    if not status then
+        StatusManager.logger:warn(("save: status nil src=%d"):format(src))
+        return
+    end
+
+    if not status._dirty then
+        return
+    end
+
+    if not status._uniqueId or status._uniqueId == "" then
+        StatusManager.logger:warn(("save: _uniqueId nil ou vide src=%d — annulé"):format(src))
+        return
+    end
 
     local license = identifier
 
@@ -117,6 +121,11 @@ function StatusManager.save(src, status, identifier)
         StatusManager.logger:warn(("save: license vide src=%d — annulé"):format(src))
         return
     end
+
+    StatusManager.logger:debug(("save: src=%d uid=%s h=%d t=%d s=%d"):format(
+        src, tostring(status._uniqueId),
+        clamp(status.hunger), clamp(status.thirst), clamp(status.stress)
+    ))
 
     exports.oxmysql:execute([[
         INSERT INTO player_status (identifier, unique_id, hunger, thirst, stress, last_update)
@@ -143,7 +152,6 @@ end
 
 -- ─────────────────────────────────────────────
 -- SET / ADD
--- FIX ST2 : set() marque _pendingSend au lieu d'envoyer directement
 -- ─────────────────────────────────────────────
 
 function StatusManager.set(src, stat, value)
@@ -153,7 +161,6 @@ function StatusManager.set(src, stat, value)
 
     s[stat]        = clamp(value)
     s._dirty       = true
-    -- FIX ST2 : on marque juste, flushPendingSends() enverra groupé
     s._pendingSend = true
 end
 
@@ -164,7 +171,7 @@ function StatusManager.add(src, stat, value)
 end
 
 -- ─────────────────────────────────────────────
--- SET IMMÉDIAT (pour les commandes admin qui doivent notifier tout de suite)
+-- SET IMMÉDIAT
 -- ─────────────────────────────────────────────
 
 function StatusManager.setAndSend(src, stat, value)
@@ -181,7 +188,6 @@ end
 
 -- ─────────────────────────────────────────────
 -- FLUSH GROUPÉ
--- FIX ST1 : cette fonction était appelée dans status_tick.lua mais n'existait pas
 -- ─────────────────────────────────────────────
 
 function StatusManager.flushPendingSends()
@@ -216,20 +222,17 @@ RegisterNetEvent("union:status:sync", function(clientStatus)
         end
     end
     s._dirty = true
-    -- Pas de pendingSend ici : le client a déjà les valeurs
 end)
 
 -- ─────────────────────────────────────────────
--- SPAWN : chargement des statuts
+-- SPAWN
 -- ─────────────────────────────────────────────
 
 AddEventHandler("union:player:spawned", function(src, character)
     if not src or not character or not character.unique_id then return end
 
     StatusManager.load(src, character.unique_id, function(status)
-        StatusManager.logger:debug(
-            ("Statuts prêts src=%d uid=%s"):format(src, character.unique_id)
-        )
+        StatusManager.logger:debug(("Statuts prêts src=%d uid=%s"):format(src, character.unique_id))
     end)
 end)
 
@@ -239,7 +242,6 @@ end)
 
 AddEventHandler("playerDropped", function()
     local src = source
-
     local license = nil
     local player  = PlayerManager.get(src)
     if player then license = player.license end
@@ -248,15 +250,13 @@ AddEventHandler("playerDropped", function()
 
     local status = StatusManager.cache[src]
     if status then
-        StatusManager.save(src, status, license)
+        StatusManager.save(src, status, license)  -- ← save ici
         StatusManager.cache[src] = nil
-        StatusManager.logger:debug("Cache statut nettoyé pour src=" .. tostring(src))
     end
 end)
 
 -- ─────────────────────────────────────────────
 -- EXPORTS
--- FIX #5 : wrappers pour éviter la confusion avec source global
 -- ─────────────────────────────────────────────
 
 exports("GetPlayerStatus", StatusManager.get)
@@ -268,12 +268,14 @@ exports("SetStat", function(stat, value)
     StatusManager.setAndSend(src, stat, value)
 end)
 
-exports("AddStat", function(stat, value)
-    local src = source
+exports("AddStat", function(src, stat, value)
     StatusManager.add(src, stat, value)
-    -- Flush immédiat pour les exports externes
+
     local s = StatusManager.cache[src]
-    if s and GetPlayerEndpoint(src) then
+    if not s then return end
+
+    -- Flush immédiat vers le client
+    if GetPlayerEndpoint(src) then
         TriggerClientEvent("union:status:updateAll", src, {
             hunger = s.hunger,
             thirst = s.thirst,
@@ -281,4 +283,9 @@ exports("AddStat", function(stat, value)
         })
         s._pendingSend = false
     end
+
+    -- Save immédiate en base après chaque item consommé
+    local player  = PlayerManager.get(src)
+    local license = player and player.license
+    StatusManager.save(src, s, license)
 end)

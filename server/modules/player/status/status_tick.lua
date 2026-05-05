@@ -1,11 +1,4 @@
 -- server/modules/player/status/status_tick.lua
--- FIXES:
---   #1 : Decay passe par StatusManager.set() (qui ne flush plus directement).
---        Un seul TriggerClientEvent groupé par joueur via StatusManager.flushPendingSends().
---   #2 : Vérification player.isSpawned — pas de decay en écran de chargement.
---   #3 : Save loop unique ici (retirée de manager.lua).
---   #4 : Les events stress sont envoyés conditionnellement, en dehors du flush groupé.
---   #5 : StatusManager récupéré via _G avec guard de chargement.
 
 print("[STATUS] Tick loaded")
 
@@ -16,43 +9,52 @@ if not StatusManager then
 end
 
 local function debug(msg)
-    if StatusConfig.debug then
+    if StatusConfig and StatusConfig.debug then
         print("^3[STATUS][TICK]^0 " .. msg)
     end
 end
 
 -- ─────────────────────────────────────────────
 -- MAIN TICK
--- FIX #1 : decay via set() (pas de flush direct), puis flushPendingSends() une fois.
--- FIX #2 : skip si player.isSpawned == false.
 -- ─────────────────────────────────────────────
 CreateThread(function()
+    -- Guard : attendre que StatusConfig soit chargé
+    while not StatusConfig or not StatusConfig.tickInterval do
+        print("^3[STATUS][TICK] En attente de StatusConfig...^0")
+        Wait(1000)
+    end
+
+    print(("^2[STATUS][TICK] Démarrage — interval=%dms decay h=%.1f t=%.1f^0"):format(
+        StatusConfig.tickInterval,
+        StatusConfig.decay.hunger,
+        StatusConfig.decay.thirst
+    ))
+
     while true do
-        Wait(StatusConfig.tickInterval or 5000)
+        Wait(StatusConfig.tickInterval)
 
         for src, status in pairs(StatusManager.cache) do
             if status then
                 local player = PlayerManager.get(src)
 
-                -- FIX #2 : skip joueur non encore spawné
                 if not player or not player.currentCharacter or not player.isSpawned then
                     goto continue
                 end
 
-                -- FIX #1 : set() marque _pendingSend, ne flush pas encore
-                StatusManager.set(src, "hunger", status.hunger - (StatusConfig.decay.hunger or 0.8))
-                StatusManager.set(src, "thirst", status.thirst - (StatusConfig.decay.thirst or 1.2))
+                local newHunger = status.hunger - (StatusConfig.decay.hunger or 0.8)
+                local newThirst = status.thirst - (StatusConfig.decay.thirst or 1.2)
+
+                StatusManager.set(src, "hunger", newHunger)
+                StatusManager.set(src, "thirst", newThirst)
 
                 if status.stress > 0 then
                     StatusManager.set(src, "stress", status.stress - (StatusConfig.stressDecay or 0.5))
                 end
 
-                -- Dégâts si faim ou soif à 0
                 if status.hunger <= 0 or status.thirst <= 0 then
                     TriggerClientEvent("union:status:applyDamage", src, StatusConfig.effects.damageAmount or 5)
                 end
 
-                -- FIX #4 : effets stress conditionnels (envoyés séparément, pas dans le flush groupé)
                 if status.stress >= 90 then
                     TriggerClientEvent("union:status:stress:max",  src)
                     TriggerClientEvent("union:status:blur:max",    src)
@@ -64,25 +66,36 @@ CreateThread(function()
                     TriggerClientEvent("union:status:stress:low",  src)
                 end
 
-                debug(("tick src=%s | h=%d t=%d s=%d"):format(tostring(src), status.hunger, status.thirst, status.stress))
+                debug(("tick src=%s | h=%d t=%d s=%d [%s]"):format(
+                    tostring(src),
+                    status.hunger,
+                    status.thirst,
+                    status.stress,
+                    os.date("%H:%M:%S")
+                ))
 
                 ::continue::
             end
         end
 
-        -- FIX #1 : un seul updateAll groupé par joueur après tous les sets du cycle
         StatusManager.flushPendingSends()
     end
 end)
 
 -- ─────────────────────────────────────────────
--- SAVE LOOP — FIX #3 : unique ici
+-- SAVE LOOP
 -- ─────────────────────────────────────────────
 CreateThread(function()
-    while not Server.isReady do Wait(1000) end
+    while not StatusConfig or not StatusConfig.saveInterval do
+        Wait(1000)
+    end
+
+    while not Server.isReady do
+        Wait(1000)
+    end
 
     while true do
-        Wait(StatusConfig.saveInterval or 60000)
+        Wait(StatusConfig.saveInterval)
 
         local saved = 0
         for src, player in pairs(PlayerManager.getAll() or {}) do
