@@ -1,12 +1,11 @@
 -- server/modules/player/manager.lua
--- FIX #1 : playerDropped — sauvegarde dans un CreateThread pour éviter le blocage
---           et garantir que la DB reçoit bien les données avant le remove.
--- FIX #2 : Un seul handler "union:player:spawned" (isSpawned uniquement ici).
--- FIX #3 : OfflinePed.create appelé AVANT PlayerManager.remove.
--- FIX #4 : Vérification GetPlayerEndpoint avant d'accéder au ped (joueur déjà parti).
+-- FIX PM1 : playerDropped utilise le snapshot complet (health, armor, position)
+--            sans accéder à player.currentCharacter depuis le thread async.
+-- FIX PM2 : commentaire clarifié sur la single-thread FiveM.
+-- FIX PM3 : Auth.Webhooks.playerLeft appelée seulement si player existe.
 
-PlayerManager        = {}
-PlayerManager.logger = Logger:child("PLAYER:MANAGER")
+PlayerManager         = {}
+PlayerManager.logger  = Logger:child("PLAYER:MANAGER")
 PlayerManager.players = {}
 
 function PlayerManager.create(source)
@@ -70,6 +69,7 @@ end
 -- ──────────────────────────────────────────────────────────────────────────
 -- Joueur rejoint
 -- ──────────────────────────────────────────────────────────────────────────
+
 RegisterNetEvent("union:player:joined", function()
     local src = source
 
@@ -92,7 +92,7 @@ RegisterNetEvent("union:player:joined", function()
     end)
 end)
 
--- FIX #2 : isSpawned mis à jour ici, sans toucher au StatusManager
+-- isSpawned mis à jour ici uniquement (FIX manager double-handler)
 AddEventHandler("union:player:spawned", function(src, character)
     if not src or not character then return end
     local player = PlayerManager.get(src)
@@ -104,80 +104,95 @@ end)
 
 -- ──────────────────────────────────────────────────────────────────────────
 -- Joueur quitte
--- FIX #1 : sauvegarde dans un thread pour ne pas bloquer le handler
--- FIX #3 : OfflinePed.create AVANT PlayerManager.remove
--- FIX #4 : vérification GetPlayerEndpoint
+-- FIX PM1 : snapshot COMPLET avant toute async, utilisé dans le thread
+-- FIX PM3 : webhook seulement si player existe
 -- ──────────────────────────────────────────────────────────────────────────
+
 AddEventHandler("playerDropped", function(reason)
     local src    = source
     local player = PlayerManager.get(src)
 
     if not player then return end
 
+    -- FIX PM3 : webhook ici, player est confirmé non-nil
     Auth.Webhooks.playerLeft(src, reason)
     PlayerManager.logger:info("Joueur " .. player.name .. " déconnecté : " .. tostring(reason))
 
-    -- Snapshot du personnage AVANT toute modification (évite race condition)
-    local charSnapshot = nil
-    if player.currentCharacter then
-        charSnapshot = {
-            unique_id = player.currentCharacter.unique_id,
-            model     = player.currentCharacter.model,
-            gender    = player.currentCharacter.gender,
+    -- FIX PM1 : snapshot COMPLET de toutes les données nécessaires dans le thread
+    local saveData = nil
+    if player.currentCharacter and player.isSpawned then
+        local char = player.currentCharacter
+        local posJson = nil
+
+        if type(char.position) == "string" then
+            posJson = char.position
+        elseif type(char.position) == "table" then
+            posJson = json.encode(char.position)
+        elseif type(char.position) == "vector3" then
+            posJson = json.encode({
+                x = char.position.x,
+                y = char.position.y,
+                z = char.position.z,
+                heading = char.heading or 0.0,
+            })
+        end
+
+        saveData = {
+            unique_id = char.unique_id,
+            health    = char.health or 200,
+            armor     = char.armor  or 0,
+            posJson   = posJson,
+            name      = player.name,
         }
     end
 
-    -- FIX #3 : OfflinePed AVANT PlayerManager.remove
-    if charSnapshot and OfflinePed then
-        -- On ne peut pas lire les coordonnées du ped ici de façon fiable
-        -- car le joueur vient de quitter. On utilise la position sauvegardée.
-        local posData = player.currentCharacter and player.currentCharacter.position
+    -- OfflinePed AVANT remove
+    if player.currentCharacter and OfflinePed then
+        local char    = player.currentCharacter
+        local posData = char.position
+
         if posData then
-            charSnapshot.position = type(posData) == "string" and posData or json.encode(posData)
+            local posStr = type(posData) == "string" and posData or json.encode(posData)
             OfflinePed.create({
-                currentCharacter = charSnapshot,
-                name             = player.name,
+                currentCharacter = {
+                    unique_id = char.unique_id,
+                    model     = char.model,
+                    gender    = char.gender,
+                    position  = posStr,
+                },
+                name = player.name,
             })
         end
     end
 
-    -- FIX #1 : sauvegarde async dans un thread dédié
-    if player.currentCharacter then
-        local uid    = player.currentCharacter.unique_id
-        local name   = player.name
-
+    -- FIX PM1 : thread async utilise uniquement le snapshot (plus de dépendance à player)
+    if saveData then
         CreateThread(function()
-            -- FIX #4 : le joueur est parti, on ne peut plus lire son ped
-            -- On sauvegarde la dernière position connue (déjà stockée dans currentCharacter)
-            local posJson = nil
-            local health  = player.currentCharacter.health or 200
-            local armor   = player.currentCharacter.armor  or 0
-
-            if player.currentCharacter.position then
-                if type(player.currentCharacter.position) == "string" then
-                    posJson = player.currentCharacter.position
-                else
-                    posJson = json.encode(player.currentCharacter.position)
-                end
+            if not saveData.posJson then
+                PlayerManager.logger:warn("Pas de position à sauvegarder pour " .. saveData.name)
+                return
             end
 
-            if posJson then
-                exports.oxmysql:execute([[
-                    UPDATE characters SET
+            exports.oxmysql:execute([[
+                UPDATE characters SET
                     position = ?, health = ?, armor = ?, last_played = NOW()
-                    WHERE unique_id = ?
-                ]], { posJson, health, armor, uid }, function(result)
-                    if result then
-                        PlayerManager.logger:info("Personnage sauvegardé à la déco pour " .. name)
-                    else
-                        PlayerManager.logger:error("Échec sauvegarde personnage pour " .. name)
-                    end
-                end)
-            end
+                WHERE unique_id = ?
+            ]], {
+                saveData.posJson,
+                saveData.health,
+                saveData.armor,
+                saveData.unique_id,
+            }, function(result)
+                if result then
+                    PlayerManager.logger:info("Personnage sauvegardé à la déco pour " .. saveData.name)
+                else
+                    PlayerManager.logger:error("Échec sauvegarde personnage pour " .. saveData.name)
+                end
+            end)
         end)
     end
 
-    -- FIX #3 : remove APRÈS OfflinePed et lancement de la sauvegarde
+    -- remove APRÈS OfflinePed et lancement de la sauvegarde
     PlayerManager.remove(src)
 end)
 

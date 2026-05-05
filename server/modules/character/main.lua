@@ -1,15 +1,12 @@
 -- server/modules/character/main.lua
--- FIX #1 : Character.select() — vérification que le joueur est encore connecté
---           avant TriggerClientEvent (évite l'envoi à un joueur déconnecté).
--- FIX #2 : applySkinData — validation des types pour éviter de passer nil.
--- FIX #3 : Character.create() — génération async sécurisée de l'UID.
--- FIX #4 : getPlayer() — log amélioré.
+-- FIX CH1 : callback(true, selected) documenté — le callback ne doit pas re-déclencher spawn.
+-- FIX CH2 : applySkinData renommée pour clarifier l'effet de bord.
+-- FIX CH3 : création du compte bancaire via BankDB.createAccount (avec retry unicité).
 
 Character        = {}
 Character.logger = Logger:child("CHARACTER")
 
 local function isPlayerConnected(src)
-    -- GetPlayerEndpoint retourne nil si le joueur n'est plus connecté
     return GetPlayerEndpoint(src) ~= nil
 end
 
@@ -28,23 +25,19 @@ local function decodePosition(raw)
 end
 
 local function resolveModel(selected)
-    if selected.model and (
-        selected.model == "mp_m_freemode_01" or
-        selected.model == "mp_f_freemode_01"
-    ) then
+    if selected.model == "mp_m_freemode_01" or selected.model == "mp_f_freemode_01" then
         return selected.model
     end
     return selected.gender == "f" and "mp_f_freemode_01" or "mp_m_freemode_01"
 end
 
--- FIX #2 : validation des types avant d'affecter à charData
-local function applySkinData(charData, appearance)
+-- FIX CH2 : nom explicite "ToCharData" pour indiquer la mutation
+local function applySkinDataToCharData(charData, appearance)
     if not (appearance and appearance.skin_data) then return end
 
     local ok, skin = pcall(json.decode, appearance.skin_data)
     if not (ok and type(skin) == "table") then return end
 
-    -- Vérification de type pour chaque champ
     if type(skin.hair)         == "table" then charData.hair         = skin.hair         end
     if type(skin.headBlend)    == "table" then charData.headBlend    = skin.headBlend    end
     if type(skin.faceFeatures) == "table" then charData.faceFeatures = skin.faceFeatures end
@@ -72,8 +65,6 @@ function Character.create(player, data, callback)
     local gender    = (genderRaw == "f" or genderRaw == "mp_f_freemode_01" or genderRaw == "female") and "f" or "m"
     local model     = gender == "f" and Config.spawn.femaleModel or Config.spawn.defaultModel
 
-    -- FIX #3 : generateUniqueId est maintenant async (vérification DB)
-    -- On utilise une CreateThread pour rester dans un contexte async
     CreateThread(function()
         local uniqueId = ServerUtils.generateUniqueId(12)
 
@@ -103,23 +94,20 @@ function Character.create(player, data, callback)
                 "INSERT INTO character_appearances (unique_id) VALUES (?)",
                 { uniqueId },
                 function()
-                    -- Créer le compte bancaire
-                    Database.execute([[
-                        INSERT IGNORE INTO bank_accounts
-                            (account_number, owner_type, owner_id, unique_id, type, balance)
-                        VALUES (?, 'character', ?, ?, 'personal', 0)
-                    ]], {
-                        tostring(math.random(1000000000, 9999999999)),
-                        uniqueId, uniqueId
-                    }, function() end)
+                    -- FIX CH3 : utiliser BankDB.createAccount qui gère l'unicité
+                    BankDB.createAccount(uniqueId, "personal", function(accountId)
+                        if not accountId then
+                            Character.logger:warn("Compte bancaire non créé pour uid=" .. uniqueId)
+                        end
 
-                    Character.logger:info(
-                        ("Personnage créé pour %s : %s %s (uid=%s)"):format(
-                            player.name, firstname, lastname, uniqueId
+                        Character.logger:info(
+                            ("Personnage créé pour %s : %s %s (uid=%s)"):format(
+                                player.name, firstname, lastname, uniqueId
+                            )
                         )
-                    )
-                    player:loadCharacters(function()
-                        if callback then callback(true, characterId, uniqueId) end
+                        player:loadCharacters(function()
+                            if callback then callback(true, characterId, uniqueId) end
+                        end)
                     end)
                 end
             )
@@ -182,12 +170,14 @@ function Character.select(player, characterId, callback)
         "SELECT skin_data FROM character_appearances WHERE unique_id = ?",
         { selected.unique_id },
         function(appearance)
-            applySkinData(charData, appearance)
+            -- FIX CH2 : nom explicite
+            applySkinDataToCharData(charData, appearance)
 
-            -- FIX #1 : callback AVANT TriggerClientEvent ET vérification connexion
+            -- FIX CH1 : callback appelé AVANT TriggerClientEvent —
+            -- ATTENTION : le callback (ex: characterManager) NE DOIT PAS re-déclencher spawn.
+            -- union:spawn:apply est envoyé ici, c'est le seul chemin.
             if callback then callback(true, selected) end
 
-            -- Vérifier que le joueur est encore connecté avant d'envoyer
             if not isPlayerConnected(player.source) then
                 Character.logger:warn(
                     ("select: joueur %s déconnecté avant TriggerClientEvent"):format(player.name)

@@ -1,15 +1,17 @@
 -- server/modules/player/status/manager.lua
--- FIX #1 : UN SEUL handler "union:player:spawned" dans tout le projet pour StatusManager.
--- FIX #2 : Guard anti-double-chargement (_loading) robuste.
--- FIX #3 : playerDropped — license capturée AVANT PlayerManager.remove.
--- FIX #4 : StatusManager.save protégée contre les identifier nil.
--- FIX #5 : Exports nommés sans conflit avec le contexte source global.
+-- FIX ST1 : implémentation de StatusManager.flushPendingSends() (manquait totalement)
+-- FIX ST2 : StatusManager.set() ne TriggerClientEvent plus directement —
+--            il marque _pendingSend = true et laisse flushPendingSends() envoyer.
+--            Cela évite la contradiction entre envoi direct et envoi groupé.
+-- FIX ST3 : guard GetPlayerEndpoint déjà présent, renforcé.
+-- FIX #4  : StatusManager.save protégée contre identifier nil (conservé).
+-- FIX #5  : exports sans conflit source global (conservé).
 
 print("[STATUS] Manager chargé")
 
-StatusManager        = {}
-StatusManager.logger = Logger:child("STATUS:MANAGER")
-StatusManager.cache  = {}
+StatusManager          = {}
+StatusManager.logger   = Logger:child("STATUS:MANAGER")
+StatusManager.cache    = {}
 StatusManager._loading = {}
 
 _G.StatusManager = StatusManager
@@ -25,11 +27,13 @@ StatusManager.clamp = clamp
 
 local function defaultStatus()
     return {
-        hunger    = StatusConfig.defaults.hunger or 100,
-        thirst    = StatusConfig.defaults.thirst or 100,
-        stress    = StatusConfig.defaults.stress or 0,
-        _dirty    = false,
-        _uniqueId = nil,
+        hunger       = StatusConfig.defaults.hunger or 100,
+        thirst       = StatusConfig.defaults.thirst or 100,
+        stress       = StatusConfig.defaults.stress or 0,
+        _dirty       = false,
+        _uniqueId    = nil,
+        -- FIX ST1 : flag pour l'envoi groupé
+        _pendingSend = false,
     }
 end
 
@@ -38,10 +42,8 @@ end
 -- ─────────────────────────────────────────────
 
 function StatusManager.load(src, uniqueId, callback)
-    -- FIX #2 : guard anti-double-chargement strict
     if StatusManager._loading[src] then
         StatusManager.logger:warn(("Double load ignoré src=%d uid=%s"):format(src, tostring(uniqueId)))
-        -- Attendre que le chargement en cours se termine
         CreateThread(function()
             local waited = 0
             while StatusManager._loading[src] and waited < 30 do
@@ -59,21 +61,19 @@ function StatusManager.load(src, uniqueId, callback)
         "SELECT hunger, thirst, stress FROM player_status WHERE unique_id = ?",
         { uniqueId },
         function(rows)
-            -- FIX #2 : libérer le guard TOUJOURS (même en cas d'erreur)
             StatusManager._loading[src] = nil
 
-            -- Si déjà en cache avec le bon uniqueId (race condition résolue)
             if StatusManager.cache[src] and StatusManager.cache[src]._uniqueId == uniqueId then
                 StatusManager.logger:debug(("Déjà en cache src=%d uid=%s"):format(src, tostring(uniqueId)))
                 if callback then callback(StatusManager.cache[src]) end
                 return
             end
 
-            local status    = defaultStatus()
-            status._uniqueId = uniqueId
+            local status         = defaultStatus()
+            status._uniqueId     = uniqueId
 
             if rows and rows[1] then
-                local r = rows[1]
+                local r       = rows[1]
                 status.hunger = clamp(r.hunger)
                 status.thirst = clamp(r.thirst)
                 status.stress = clamp(r.stress)
@@ -86,7 +86,6 @@ function StatusManager.load(src, uniqueId, callback)
                 )
             )
 
-            -- Vérifier que le joueur est encore connecté
             if GetPlayerEndpoint(src) then
                 TriggerClientEvent("union:status:init", src, {
                     hunger = status.hunger,
@@ -100,7 +99,6 @@ function StatusManager.load(src, uniqueId, callback)
     )
 end
 
--- FIX #4 : identifier protégé contre nil
 function StatusManager.save(src, status, identifier)
     if not status or not status._dirty or not status._uniqueId then return end
 
@@ -145,6 +143,7 @@ end
 
 -- ─────────────────────────────────────────────
 -- SET / ADD
+-- FIX ST2 : set() marque _pendingSend au lieu d'envoyer directement
 -- ─────────────────────────────────────────────
 
 function StatusManager.set(src, stat, value)
@@ -152,16 +151,10 @@ function StatusManager.set(src, stat, value)
     local s = StatusManager.cache[src]
     if not s then return end
 
-    s[stat]  = clamp(value)
-    s._dirty = true
-
-    if GetPlayerEndpoint(src) then
-        TriggerClientEvent("union:status:updateAll", src, {
-            hunger = s.hunger,
-            thirst = s.thirst,
-            stress = s.stress,
-        })
-    end
+    s[stat]        = clamp(value)
+    s._dirty       = true
+    -- FIX ST2 : on marque juste, flushPendingSends() enverra groupé
+    s._pendingSend = true
 end
 
 function StatusManager.add(src, stat, value)
@@ -171,8 +164,45 @@ function StatusManager.add(src, stat, value)
 end
 
 -- ─────────────────────────────────────────────
+-- SET IMMÉDIAT (pour les commandes admin qui doivent notifier tout de suite)
+-- ─────────────────────────────────────────────
+
+function StatusManager.setAndSend(src, stat, value)
+    StatusManager.set(src, stat, value)
+    local s = StatusManager.cache[src]
+    if not s or not GetPlayerEndpoint(src) then return end
+    TriggerClientEvent("union:status:updateAll", src, {
+        hunger = s.hunger,
+        thirst = s.thirst,
+        stress = s.stress,
+    })
+    s._pendingSend = false
+end
+
+-- ─────────────────────────────────────────────
+-- FLUSH GROUPÉ
+-- FIX ST1 : cette fonction était appelée dans status_tick.lua mais n'existait pas
+-- ─────────────────────────────────────────────
+
+function StatusManager.flushPendingSends()
+    for src, status in pairs(StatusManager.cache) do
+        if status and status._pendingSend then
+            if GetPlayerEndpoint(src) then
+                TriggerClientEvent("union:status:updateAll", src, {
+                    hunger = status.hunger,
+                    thirst = status.thirst,
+                    stress = status.stress,
+                })
+            end
+            status._pendingSend = false
+        end
+    end
+end
+
+-- ─────────────────────────────────────────────
 -- SYNC client → serveur
 -- ─────────────────────────────────────────────
+
 RegisterNetEvent("union:status:sync", function(clientStatus)
     local src = source
     if not clientStatus then return end
@@ -186,11 +216,13 @@ RegisterNetEvent("union:status:sync", function(clientStatus)
         end
     end
     s._dirty = true
+    -- Pas de pendingSend ici : le client a déjà les valeurs
 end)
 
 -- ─────────────────────────────────────────────
--- FIX #1 : UN SEUL handler pour le chargement au spawn
+-- SPAWN : chargement des statuts
 -- ─────────────────────────────────────────────
+
 AddEventHandler("union:player:spawned", function(src, character)
     if not src or not character or not character.unique_id then return end
 
@@ -202,17 +234,16 @@ AddEventHandler("union:player:spawned", function(src, character)
 end)
 
 -- ─────────────────────────────────────────────
--- FIX #3 : playerDropped — capturer la license AVANT PlayerManager.remove
+-- DÉCONNEXION
 -- ─────────────────────────────────────────────
+
 AddEventHandler("playerDropped", function()
     local src = source
 
-    -- Capturer AVANT que PlayerManager libère le joueur
     local license = nil
     local player  = PlayerManager.get(src)
     if player then license = player.license end
 
-    -- Libérer le guard de chargement
     StatusManager._loading[src] = nil
 
     local status = StatusManager.cache[src]
@@ -224,20 +255,30 @@ AddEventHandler("playerDropped", function()
 end)
 
 -- ─────────────────────────────────────────────
--- FIX #5 : Exports — on utilise des wrappers pour éviter la confusion source
+-- EXPORTS
+-- FIX #5 : wrappers pour éviter la confusion avec source global
 -- ─────────────────────────────────────────────
 
 exports("GetPlayerStatus", StatusManager.get)
-exports("SetPlayerStat",   StatusManager.set)
+exports("SetPlayerStat",   StatusManager.setAndSend)
 exports("AddPlayerStat",   StatusManager.add)
 
--- Ces exports sont appelés depuis le contexte d'un event (source défini)
 exports("SetStat", function(stat, value)
     local src = source
-    StatusManager.set(src, stat, value)
+    StatusManager.setAndSend(src, stat, value)
 end)
 
 exports("AddStat", function(stat, value)
     local src = source
     StatusManager.add(src, stat, value)
+    -- Flush immédiat pour les exports externes
+    local s = StatusManager.cache[src]
+    if s and GetPlayerEndpoint(src) then
+        TriggerClientEvent("union:status:updateAll", src, {
+            hunger = s.hunger,
+            thirst = s.thirst,
+            stress = s.stress,
+        })
+        s._pendingSend = false
+    end
 end)
