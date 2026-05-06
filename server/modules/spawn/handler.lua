@@ -101,18 +101,12 @@ function SpawnHandler._buildCharData(char)
         end
     end
 
-    local model = char.model or ""
-    if model ~= "mp_m_freemode_01" and model ~= "mp_f_freemode_01" then
-        model = (char.gender == "f") and Config.spawn.femaleModel or Config.spawn.defaultModel
-    end
-
     return {
         id          = char.id,
         unique_id   = char.unique_id,
         firstname   = char.firstname,
         lastname    = char.lastname,
-        gender      = char.gender,
-        model       = model,
+        ped_model   = char.ped_model or Config.spawn.defaultModel,
         dateofbirth = char.dateofbirth,
         position    = position,
         heading     = heading,

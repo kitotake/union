@@ -128,15 +128,14 @@ function StatusManager.save(src, status, identifier)
     ))
 
     exports.oxmysql:execute([[
-        INSERT INTO player_status (identifier, unique_id, hunger, thirst, stress, last_update)
-        VALUES (?, ?, ?, ?, ?, NOW())
+        INSERT INTO player_status ( unique_id, hunger, thirst, stress, last_update)
+        VALUES ( ?, ?, ?, ?, NOW())
         ON DUPLICATE KEY UPDATE
             hunger      = VALUES(hunger),
             thirst      = VALUES(thirst),
             stress      = VALUES(stress),
             last_update = NOW()
     ]], {
-        license,
         status._uniqueId,
         clamp(status.hunger),
         clamp(status.thirst),

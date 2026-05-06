@@ -18,11 +18,15 @@ local function syncCharacterState(charData)
         return
     end
 
+    -- Dérive le gender du ped_model
+    local gender = (charData.ped_model == "mp_f_freemode_01") and "f" or "m"
+
     LocalPlayer.state:set("character", {
         unique_id   = charData.unique_id,
         firstname   = charData.firstname,
         lastname    = charData.lastname,
-        gender      = charData.gender,
+        gender      = gender,
+        ped_model   = charData.ped_model,
         job         = charData.job or "unemployed",
         job_grade   = charData.job_grade or 0,
     }, false)

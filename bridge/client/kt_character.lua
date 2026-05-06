@@ -32,10 +32,9 @@ function Bridge.Character.applyAppearance(charData)
     return true
 end
 
--- Fallback : applique juste le modèle de base selon le genre
+-- Fallback : applique juste le modèle de base
 function Bridge.Character._applyFallback(charData)
-    local gender = charData and charData.gender or "m"
-    local model  = gender == "f" and "mp_f_freemode_01" or "mp_m_freemode_01"
+    local model = charData and charData.ped_model or "mp_m_freemode_01"
 
     local hash = GetHashKey(model)
     if not HasModelLoaded(hash) then

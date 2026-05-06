@@ -4,7 +4,7 @@ CharacterDB.logger = Logger:child("CHARACTER:DATABASE")
 
 function CharacterDB.getCharacterCount(license, callback)
     Database.scalar(
-        "SELECT COUNT(*) FROM characters WHERE identifier = ?",
+        "SELECT COUNT(*) FROM characters c INNER JOIN user_character uc ON c.unique_id = uc.unique_id WHERE uc.identifier = ?",
         {license},
         function(count)
             if callback then callback(count or 0) end
@@ -34,7 +34,7 @@ end
 
 function CharacterDB.getLastPlayedCharacter(license, callback)
     Database.fetchOne(
-        "SELECT * FROM characters WHERE identifier = ? ORDER BY last_played DESC LIMIT 1",
+        "SELECT c.* FROM characters c INNER JOIN user_character uc ON c.unique_id = uc.unique_id WHERE uc.identifier = ? ORDER BY c.last_played DESC LIMIT 1",
         {license},
         function(result)
             if callback then callback(result) end

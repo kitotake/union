@@ -25,10 +25,8 @@ local function decodePosition(raw)
 end
 
 local function resolveModel(selected)
-    if selected.model == "mp_m_freemode_01" or selected.model == "mp_f_freemode_01" then
-        return selected.model
-    end
-    return selected.gender == "f" and "mp_f_freemode_01" or "mp_m_freemode_01"
+    -- Le modèle est maintenant stocké directement en base
+    return selected.ped_model or "mp_m_freemode_01"
 end
 
 -- FIX CH2 : nom explicite "ToCharData" pour indiquer la mutation
@@ -52,7 +50,7 @@ function Character.create(player, data, callback)
         return callback and callback(false, nil, nil)
     end
 
-    if not (data.firstname and data.lastname and data.dateofbirth and data.gender) then
+    if not (data.firstname and data.lastname and data.dateofbirth and data.ped_model) then
         Character.logger:warn("Données de personnage invalides pour " .. player.name)
         return callback and callback(false, nil, nil)
     end
@@ -60,10 +58,7 @@ function Character.create(player, data, callback)
     local firstname   = Utils.safeString(data.firstname, 50)
     local lastname    = Utils.safeString(data.lastname,  50)
     local dateofbirth = Utils.safeString(data.dateofbirth)
-
-    local genderRaw = tostring(data.gender or "m"):lower()
-    local gender    = (genderRaw == "f" or genderRaw == "mp_f_freemode_01" or genderRaw == "female") and "f" or "m"
-    local model     = gender == "f" and Config.spawn.femaleModel or Config.spawn.defaultModel
+    local ped_model   = Utils.safeString(data.ped_model, 60)
 
     CreateThread(function()
         local uniqueId = ServerUtils.generateUniqueId(12)
@@ -78,11 +73,10 @@ function Character.create(player, data, callback)
 
         Database.insert([[
             INSERT INTO characters
-                (identifier, unique_id, firstname, lastname, dateofbirth, gender, model, position)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                (unique_id, firstname, lastname, dateofbirth, ped_model, position)
+            VALUES (?, ?, ?, ?, ?, ?)
         ]], {
-            player.license, uniqueId,
-            firstname, lastname, dateofbirth, gender, model,
+            uniqueId, firstname, lastname, dateofbirth, ped_model,
             posJson,
         }, function(characterId)
             if not characterId then
@@ -94,21 +88,28 @@ function Character.create(player, data, callback)
                 "INSERT INTO character_appearances (unique_id) VALUES (?)",
                 { uniqueId },
                 function()
-                    -- FIX CH3 : utiliser BankDB.createAccount qui gère l'unicité
-                    BankDB.createAccount(uniqueId, "personal", function(accountId)
-                        if not accountId then
-                            Character.logger:warn("Compte bancaire non créé pour uid=" .. uniqueId)
-                        end
+                    -- Créer la relation N-N entre user et character via user_character
+                    Database.insert(
+                        "INSERT INTO user_character (identifier, unique_id) VALUES (?, ?)",
+                        { player.license, uniqueId },
+                        function()
+                            -- FIX CH3 : utiliser BankDB.createAccount qui gère l'unicité
+                            BankDB.createAccount(uniqueId, "personal", function(accountId)
+                                if not accountId then
+                                    Character.logger:warn("Compte bancaire non créé pour uid=" .. uniqueId)
+                                end
 
-                        Character.logger:info(
-                            ("Personnage créé pour %s : %s %s (uid=%s)"):format(
-                                player.name, firstname, lastname, uniqueId
-                            )
-                        )
-                        player:loadCharacters(function()
-                            if callback then callback(true, characterId, uniqueId) end
-                        end)
-                    end)
+                                Character.logger:info(
+                                    ("Personnage créé pour %s : %s %s (uid=%s)"):format(
+                                        player.name, firstname, lastname, uniqueId
+                                    )
+                                )
+                                player:loadCharacters(function()
+                                    if callback then callback(true, characterId, uniqueId) end
+                                end)
+                            end)
+                        end
+                    )
                 end
             )
         end)
@@ -157,8 +158,7 @@ function Character.select(player, characterId, callback)
         unique_id   = selected.unique_id,
         firstname   = selected.firstname,
         lastname    = selected.lastname,
-        gender      = selected.gender,
-        model       = resolveModel(selected),
+        ped_model   = resolveModel(selected),
         dateofbirth = selected.dateofbirth,
         position    = position,
         heading     = heading,
@@ -195,9 +195,22 @@ function Character.delete(player, characterId, callback)
         return callback and callback(false)
     end
 
+    local selected
+    for _, char in ipairs(player.characters) do
+        if char.id == characterId then
+            selected = char
+            break
+        end
+    end
+
+    if not selected then
+        Character.logger:warn("Personnage à supprimer introuvable : " .. tostring(characterId))
+        return callback and callback(false)
+    end
+
     Database.execute(
-        "DELETE FROM characters WHERE id = ? AND identifier = ?",
-        { characterId, player.license },
+        "DELETE FROM characters WHERE id = ? AND unique_id = ?",
+        { characterId, selected.unique_id },
         function(result)
             if result then
                 Character.logger:info("Personnage supprimé : " .. tostring(characterId))

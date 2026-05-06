@@ -22,8 +22,8 @@ function CharacterCreate.validate(data)
         return false, "Date of birth is required"
     end
     
-    if not data.gender or (data.gender ~= "m" and data.gender ~= "f") then
-        return false, "Please select a gender"
+    if not data.ped_model or (data.ped_model ~= "mp_m_freemode_01" and data.ped_model ~= "mp_f_freemode_01") then
+        return false, "Please select a valid model"
     end
     
     return true, nil

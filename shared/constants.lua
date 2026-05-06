@@ -26,12 +26,6 @@ Constants = {
         COMMANDER = 5,
     },
     
-    -- Gender
-    GENDER = {
-        MALE = "m",
-        FEMALE = "f",
-    },
-    
     -- Default animation dictionaries
     ANIMATIONS = {
         COMBAT = "combat@damage@rb_writhe",

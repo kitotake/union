@@ -39,13 +39,13 @@ end
 
 function BankDB.createAccount(uniqueId, accountType, callback)
     generateUniqueAccountNumber(function(accountNumber)
-        Database.execute(
-            "INSERT INTO bank_accounts (account_number, owner_type, owner_id, unique_id, type, balance) VALUES (?, ?, ?, ?, ?, 0)",
-            { accountNumber, "character", uniqueId, uniqueId, accountType or "personal" },
-            function(result)
-                if result and result.insertId then
-                    BankDB.logger:info("Compte créé : " .. accountNumber)
-                    if callback then callback(result.insertId) end
+        Database.insert(
+            "INSERT INTO bank_accounts (account_number, unique_id, owner_identifier, type, status, balance) VALUES (?, ?, ?, ?, ?, 0)",
+            { accountNumber, uniqueId, uniqueId, accountType or "personal", "active" },
+            function(accountId)
+                if accountId then
+                    BankDB.logger:info("Compte créé : " .. accountNumber .. " (uid=" .. uniqueId .. ")")
+                    if callback then callback(accountId) end
                 else
                     BankDB.logger:error("Échec création compte pour uid=" .. tostring(uniqueId))
                     if callback then callback(nil) end

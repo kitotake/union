@@ -12,7 +12,7 @@ function Character.list()
 end
 
 function Character.create(data)
-    if not data.firstname or not data.lastname or not data.dateofbirth or not data.gender then
+    if not data.firstname or not data.lastname or not data.dateofbirth or not data.ped_model then
         logger:error("Incomplete character data")
         Notifications.send(_t("character.create_failed"), "error")
         return

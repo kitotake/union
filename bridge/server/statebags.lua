@@ -13,6 +13,9 @@ StateBags.logger = Logger:child("STATEBAGS")
 function StateBags.setCharacter(src, charData)
     if not src or not charData then return end
 
+    -- Dérive le gender du ped_model
+    local gender = (charData.ped_model == "mp_f_freemode_01") and "f" or "m"
+
     -- FIX #1 : guard pcall sur Player(src).state
     local ok, err = pcall(function()
         local state = Player(src).state
@@ -21,7 +24,8 @@ function StateBags.setCharacter(src, charData)
             unique_id   = charData.unique_id,
             firstname   = charData.firstname,
             lastname    = charData.lastname,
-            gender      = charData.gender,
+            gender      = gender,
+            ped_model   = charData.ped_model,
             job         = charData.job or "unemployed",
             job_grade   = charData.job_grade or 0,
         }, true)

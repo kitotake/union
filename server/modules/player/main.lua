@@ -77,7 +77,7 @@ end
 
 function PlayerClass:loadCharacters(callback)
     Database.fetch(
-        "SELECT * FROM characters WHERE identifier = ?",
+        "SELECT c.* FROM characters c INNER JOIN user_character uc ON c.unique_id = uc.unique_id WHERE uc.identifier = ?",
         { self.license },
         function(characters)
             self.characters = characters or {}
