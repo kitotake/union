@@ -1,17 +1,5 @@
 -- client/modules/commands/character.lua
 
--- Create character command
-RegisterCommand("createchar", function(source, args)
-    local data = {
-        firstname = args[1] or "Jean",
-        lastname = args[2] or "Dupont",
-        dateofbirth = args[3] or "1990-01-01",
-        gender = args[4] or "m"
-    }
-    
-    Character.create(data)
-end, false)
-
 -- List characters command
 RegisterCommand("listchars", function()
     Character.list()

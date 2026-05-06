@@ -13,35 +13,38 @@ StateBags.logger = Logger:child("STATEBAGS")
 function StateBags.setCharacter(src, charData)
     if not src or not charData then return end
 
-    -- Dérive le gender du ped_model
-    local gender = (charData.ped_model == "mp_f_freemode_01") and "f" or "m"
+    local model, gender = normalizePed(charData.ped_model)
 
-    -- FIX #1 : guard pcall sur Player(src).state
     local ok, err = pcall(function()
-        local state = Player(src).state
+        local player = Player(src)
+        if not player then return end
 
-        state:set("character", {
-            unique_id   = charData.unique_id,
-            firstname   = charData.firstname,
-            lastname    = charData.lastname,
-            gender      = gender,
-            ped_model   = charData.ped_model,
-            job         = charData.job or "unemployed",
-            job_grade   = charData.job_grade or 0,
-        }, true)
+        local state = player.state
+
+        local character = {
+            unique_id = charData.unique_id,
+            firstname = charData.firstname or "",
+            lastname  = charData.lastname or "",
+            gender    = gender,
+            ped_model = model,
+            job       = charData.job or "unemployed",
+            job_grade = charData.job_grade or 0,
+        }
+
+        state:set("character", character, true)
 
         state:set("job", {
-            name  = charData.job or "unemployed",
-            grade = charData.job_grade or 0,
+            name  = character.job,
+            grade = character.job_grade,
         }, true)
 
-        state:set("unique_id", charData.unique_id, false)
+        state:set("unique_id", character.unique_id, false)
     end)
 
     if not ok then
         StateBags.logger:warn("setCharacter erreur src=" .. tostring(src) .. " : " .. tostring(err))
     else
-        StateBags.logger:debug(("StateBag mis à jour pour src=%s uid=%s"):format(
+        StateBags.logger:debug(("StateBag OK src=%s uid=%s"):format(
             tostring(src),
             tostring(charData.unique_id)
         ))
@@ -51,11 +54,14 @@ end
 function StateBags.clearCharacter(src)
     if not src then return end
 
-    -- FIX #2 : vérification que le joueur est encore connecté
     local ok, err = pcall(function()
-        local state = Player(src).state
+        local player = Player(src)
+        if not player then return end
+
+        local state = player.state
+
         state:set("character", nil, true)
-        state:set("job",       nil, true)
+        state:set("job", nil, true)
         state:set("unique_id", nil, false)
     end)
 

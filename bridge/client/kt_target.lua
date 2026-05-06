@@ -9,29 +9,34 @@ Bridge.register("kt_target", Bridge.Target)
 -- SYNCHRONISATION PERSONNAGE ACTIF → STATEBAG
 -- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
--- Met à jour le StateBag local avec les données du personnage
--- kt_target (et les autres scripts) peuvent lire LocalPlayer.state.character
 local function syncCharacterState(charData)
     if not charData then
         LocalPlayer.state:set("character", nil, false)
-        LocalPlayer.state:set("job",       nil, false)
+        LocalPlayer.state:set("job", nil, false)
         return
     end
 
-    -- Dérive le gender du ped_model
-    local gender = (charData.ped_model == "mp_f_freemode_01") and "f" or "m"
+    -- Sécurisation du modèle
+    local model = charData.ped_model
+    if model ~= "mp_m_freemode_01" and model ~= "mp_f_freemode_01" then
+        model = "mp_m_freemode_01"
+    end
 
+    -- Dérive le gender du modèle
+    local gender = (model == "mp_f_freemode_01") and "f" or "m"
+
+    -- State principal
     LocalPlayer.state:set("character", {
-        unique_id   = charData.unique_id,
-        firstname   = charData.firstname,
-        lastname    = charData.lastname,
-        gender      = gender,
-        ped_model   = charData.ped_model,
-        job         = charData.job or "unemployed",
-        job_grade   = charData.job_grade or 0,
+        unique_id = charData.unique_id,
+        firstname = charData.firstname or "",
+        lastname  = charData.lastname or "",
+        gender    = gender,
+        ped_model = model,
+        job       = charData.job or "unemployed",
+        job_grade = charData.job_grade or 0,
     }, false)
 
-    -- Raccourci job pour les scripts externes
+    -- State simplifié (compat scripts)
     LocalPlayer.state:set("job", {
         name  = charData.job or "unemployed",
         grade = charData.job_grade or 0,
