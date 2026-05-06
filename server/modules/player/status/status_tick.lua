@@ -66,13 +66,7 @@ CreateThread(function()
                     TriggerClientEvent("union:status:stress:low",  src)
                 end
 
-                debug(("tick src=%s | h=%d t=%d s=%d [%s]"):format(
-                    tostring(src),
-                    status.hunger,
-                    status.thirst,
-                    status.stress,
-                    os.date("%H:%M:%S")
-                ))
+                --debug(("tick src=%s | h=%d t=%d s=%d [%s]"):format(tostring(src),status.hunger,status.thirst,status.stress,os.date("%H:%M:%S")))
 
                 ::continue::
             end
