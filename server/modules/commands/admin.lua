@@ -167,11 +167,21 @@ end)
 -----------------------------------------
 RegisterCommand("tp", function(source, args)
     local src = source
-    if not hasPermTP(src) then notify(src, "Permission refusée.") return end
 
-    local x = tonumber(args[1])
-    local y = tonumber(args[2])
-    local z = tonumber(args[3])
+    if not hasPermTP(src) then
+        notify(src, "Permission refusée.")
+        return
+    end
+
+    local function parseCoord(value)
+        if not value then return nil end
+        value = value:gsub(",", "") -- retire les virgules
+        return tonumber(value)
+    end
+
+    local x = parseCoord(args[1])
+    local y = parseCoord(args[2])
+    local z = parseCoord(args[3])
 
     if not x or not y or not z then
         notify(src, "Usage: /tp x y z")
@@ -180,7 +190,7 @@ RegisterCommand("tp", function(source, args)
 
     TriggerClientEvent("admin:tp:client", src, vector3(x, y, z))
 end)
-
+    
 -----------------------------------------
 -- TPM
 -----------------------------------------

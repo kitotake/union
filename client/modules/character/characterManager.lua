@@ -107,4 +107,6 @@ AddEventHandler("onClientResourceStart", function(resourceName)
     Wait(2000)
     Logger:info("[charManager] Client prêt, envoi characters:playerReady")
     TriggerServerEvent("characters:playerReady")
+    -- Relancer le flow complet comme au premier chargement
+    TriggerServerEvent("union:player:joined")
 end)

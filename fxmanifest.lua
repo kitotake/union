@@ -144,10 +144,12 @@ server_scripts {
     -- ⑬ Commands (en dernier — utilisent tous les modules ci-dessus)
     'server/modules/commands/character.lua',
     'server/modules/commands/admin.lua',
+    'server/modules/commands/cardlist.lua',
     'server/modules/commands/debug.lua',
     'server/modules/commands/taginfo.lua',
     'server/modules/commands/job.lua',
     'server/modules/commands/bank.lua',
+    'server/modules/commands/permission.lua',
 }
 
 -- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

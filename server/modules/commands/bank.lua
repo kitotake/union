@@ -153,28 +153,42 @@ end, false)
 RegisterCommand("banktop", function(source)
     local src   = source
     local admin = PlayerManager.get(src)
+
     if not admin or not admin:hasPermission("admin.kick") then
         ServerUtils.notifyPlayer(src, "Permission refusée.", "error")
         return
     end
 
     Database.fetch([[
-        SELECT c.firstname, c.lastname, c.unique_id, ba.balance
+        SELECT
+            c.firstname,
+            c.lastname,
+            c.unique_id,
+            ba.balance
+
         FROM bank_accounts ba
-        JOIN characters c ON c.unique_id = ba.unique_id
+
+        JOIN characters c
+            ON c.unique_id COLLATE utf8mb4_unicode_ci =
+               ba.unique_id COLLATE utf8mb4_unicode_ci
+
         WHERE ba.type = 'personal'
+
         ORDER BY ba.balance DESC
+
         LIMIT 10
     ]], {}, function(results)
+
         if not results or #results == 0 then
             ServerUtils.notifyPlayer(src, "Aucun compte trouvé.", "warning")
             return
         end
 
-        print("^5[BANKTOP] ══ Top 10 ══^7")
+        print("^5[BANKTOP] ═══════ Top 10 Richesse ═══════^7")
+
         for i, row in ipairs(results) do
             print(string.format(
-                "  ^3#%d^7 %s %s — $%s [%s]",
+                "^3#%d^7 %s %s ^2$%s^7 [%s]",
                 i,
                 row.firstname or "?",
                 row.lastname  or "?",
@@ -182,6 +196,8 @@ RegisterCommand("banktop", function(source)
                 row.unique_id or "?"
             ))
         end
+
+        print("^5═══════════════════════════════════════^7")
 
         ServerUtils.notifyPlayer(src, "Top 10 affiché en console.", "info")
     end)

@@ -200,4 +200,26 @@ AddEventHandler("union:player:spawned", function(src, character)
     SpawnHandler.logger:info(("union:player:spawned confirmé src=%s"):format(tostring(src)))
 end)
 
+-- Gestion du restart resource côté serveur
+AddEventHandler("onResourceStart", function(resource)
+    if resource ~= GetCurrentResourceName() then return end
+
+    -- Re-initialiser tous les joueurs déjà connectés
+    for _, playerId in ipairs(GetPlayers()) do
+        local src = tonumber(playerId)
+        if src and not PlayerManager.get(src) then
+            local player = PlayerManager.create(src)
+            if player then
+                player:loadFromDatabase(function(success)
+                    if success then
+                        TriggerClientEvent("union:player:loaded", src)
+                    else
+                        DropPlayer(src, "Échec rechargement données après restart")
+                    end
+                end)
+            end
+        end
+    end
+end)
+
 return SpawnHandler
