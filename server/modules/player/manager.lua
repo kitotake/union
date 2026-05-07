@@ -1,8 +1,9 @@
 -- server/modules/player/manager.lua
--- FIX PM1 : playerDropped utilise le snapshot complet (health, armor, position)
---            sans accéder à player.currentCharacter depuis le thread async.
+-- FIX PM1 : snapshot complet (health, armor, position) sans accès async à player.currentCharacter.
 -- FIX PM2 : commentaire clarifié sur la single-thread FiveM.
 -- FIX PM3 : Auth.Webhooks.playerLeft appelée seulement si player existe.
+-- FIX PM4 : char.model → char.ped_model (colonne réelle). gender supprimé (inexistant).
+-- FIX PM5 : position transmise à OfflinePed sous forme de string JSON (pas vector3).
 
 PlayerManager         = {}
 PlayerManager.logger  = Logger:child("PLAYER:MANAGER")
@@ -92,7 +93,6 @@ RegisterNetEvent("union:player:joined", function()
     end)
 end)
 
--- isSpawned mis à jour ici uniquement (FIX manager double-handler)
 AddEventHandler("union:player:spawned", function(src, character)
     if not src or not character then return end
     local player = PlayerManager.get(src)
@@ -104,8 +104,9 @@ end)
 
 -- ──────────────────────────────────────────────────────────────────────────
 -- Joueur quitte
--- FIX PM1 : snapshot COMPLET avant toute async, utilisé dans le thread
--- FIX PM3 : webhook seulement si player existe
+-- FIX PM1 : snapshot COMPLET avant tout async
+-- FIX PM4 : ped_model utilisé (pas model), gender absent de la table
+-- FIX PM5 : position en JSON string pour OfflinePed.create
 -- ──────────────────────────────────────────────────────────────────────────
 
 AddEventHandler("playerDropped", function(reason)
@@ -114,14 +115,14 @@ AddEventHandler("playerDropped", function(reason)
 
     if not player then return end
 
-    -- FIX PM3 : webhook ici, player est confirmé non-nil
+    -- FIX PM3 : webhook ici, player confirmé non-nil
     Auth.Webhooks.playerLeft(src, reason)
     PlayerManager.logger:info("Joueur " .. player.name .. " déconnecté : " .. tostring(reason))
 
     -- FIX PM1 : snapshot COMPLET de toutes les données nécessaires dans le thread
     local saveData = nil
     if player.currentCharacter and player.isSpawned then
-        local char = player.currentCharacter
+        local char    = player.currentCharacter
         local posJson = nil
 
         if type(char.position) == "string" then
@@ -130,9 +131,9 @@ AddEventHandler("playerDropped", function(reason)
             posJson = json.encode(char.position)
         elseif type(char.position) == "vector3" then
             posJson = json.encode({
-                x = char.position.x,
-                y = char.position.y,
-                z = char.position.z,
+                x       = char.position.x,
+                y       = char.position.y,
+                z       = char.position.z,
                 heading = char.heading or 0.0,
             })
         end
@@ -147,25 +148,40 @@ AddEventHandler("playerDropped", function(reason)
     end
 
     -- OfflinePed AVANT remove
+    -- FIX PM4 : utiliser ped_model (colonne réelle), pas model ni gender
     if player.currentCharacter and OfflinePed then
         local char    = player.currentCharacter
         local posData = char.position
 
         if posData then
-            local posStr = type(posData) == "string" and posData or json.encode(posData)
-            OfflinePed.create({
-                currentCharacter = {
-                    unique_id = char.unique_id,
-                    model     = char.model,
-                    gender    = char.gender,
-                    position  = posStr,
-                },
-                name = player.name,
-            })
+            -- FIX PM5 : convertir en string JSON si nécessaire
+            local posStr
+            if type(posData) == "string" then
+                posStr = posData
+            elseif type(posData) == "table" then
+                posStr = json.encode(posData)
+            elseif type(posData) == "vector3" then
+                posStr = json.encode({
+                    x = posData.x, y = posData.y, z = posData.z,
+                    heading = char.heading or 0.0,
+                })
+            end
+
+            if posStr then
+                OfflinePed.create({
+                    currentCharacter = {
+                        unique_id = char.unique_id,
+                        -- FIX PM4 : ped_model est la colonne réelle
+                        ped_model = char.ped_model or "mp_m_freemode_01",
+                        position  = posStr,
+                    },
+                    name = player.name,
+                })
+            end
         end
     end
 
-    -- FIX PM1 : thread async utilise uniquement le snapshot (plus de dépendance à player)
+    -- FIX PM1 : thread async utilise uniquement le snapshot
     if saveData then
         CreateThread(function()
             if not saveData.posJson then

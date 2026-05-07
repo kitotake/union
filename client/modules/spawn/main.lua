@@ -1,7 +1,7 @@
 -- client/modules/spawn/main.lua
--- FIX #1 : timeout géré par session ID (pas de clearTimeout inexistant en Lua).
--- FIX #2 : unique_id transmis dans union:spawn:confirm.
--- FIX #3 : guard spawnInProgress réinitialisé proprement par session.
+-- FIX SP-1 : charData.model → charData.ped_model (colonne réelle côté serveur).
+-- FIX SP-2 : position reçue comme table { x, y, z } (plus vector3 brut).
+-- FIX SP-3 : guard spawnInProgress par session.
 
 Spawn = {}
 local logger = Logger:child("SPAWN")
@@ -23,24 +23,20 @@ function Spawn.respawn(model)
     TriggerServerEvent("union:spawn:requestRespawn", model)
 end
 
-local spawnInProgress = false
--- FIX #1 : compteur de session pour invalider les anciens timeouts
+local spawnInProgress    = false
 local currentSpawnSession = 0
 
 local function resetSpawnGuard()
     spawnInProgress = false
 end
 
--- FIX #1 : timeout manuel via thread Lua avec session ID
 local function startSpawnTimeout(seconds, sessionId)
     CreateThread(function()
         local limit = GetGameTimer() + (seconds * 1000)
         while GetGameTimer() < limit do
             Wait(500)
-            -- Si la session a changé, ce timeout est obsolète
             if currentSpawnSession ~= sessionId then return end
         end
-        -- Vérifier que c'est bien notre session qui a timeout
         if currentSpawnSession == sessionId and spawnInProgress then
             logger:warn(("Spawn timeout (%ds) — réinitialisation du guard [session %d]"):format(seconds, sessionId))
             resetSpawnGuard()
@@ -60,14 +56,14 @@ RegisterNetEvent("union:spawn:apply", function(characterData)
     end
     spawnInProgress = true
 
-    -- FIX #1 : nouvelle session
     currentSpawnSession = currentSpawnSession + 1
     local mySession = currentSpawnSession
     startSpawnTimeout(30, mySession)
 
-    local model = characterData.model
+    -- FIX SP-1 : le serveur envoie ped_model (colonne réelle), plus "model"
+    local model = characterData.ped_model
     if not model or model == "" then
-        logger:error("model manquant dans characterData")
+        logger:error("ped_model manquant dans characterData")
         resetSpawnGuard()
         return
     end
@@ -96,7 +92,6 @@ RegisterNetEvent("union:spawn:apply", function(characterData)
                 resetSpawnGuard()
                 return
             end
-            -- FIX #1 : session invalidée pendant le chargement ?
             if currentSpawnSession ~= mySession then
                 logger:warn("Session spawn invalidée pendant chargement modèle")
                 return
@@ -112,22 +107,26 @@ RegisterNetEvent("union:spawn:apply", function(characterData)
         FreezeEntityPosition(ped, true)
 
         -- ── 3. DATA ───────────────────────────────────
-        local pos     = characterData.position or Config.spawn.defaultPosition
-        local heading = characterData.heading  or Config.spawn.defaultHeading
-        local health  = characterData.health   or Config.character.defaultHealth
-        local armor   = characterData.armor    or 0
+        -- FIX SP-2 : position peut être une table { x, y, z } ou vector3
+        local rawPos  = characterData.position or Config.spawn.defaultPosition
+        local posX    = rawPos.x or Config.spawn.defaultPosition.x
+        local posY    = rawPos.y or Config.spawn.defaultPosition.y
+        local posZ    = rawPos.z or Config.spawn.defaultPosition.z
+        local heading = characterData.heading or Config.spawn.defaultHeading
+        local health  = characterData.health  or Config.character.defaultHealth
+        local armor   = characterData.armor   or 0
 
         -- ── 4. APPARENCE via Bridge ───────────────────
         Bridge.Character.applyAppearance(characterData)
 
         -- ── 5. COLLISION + RESPAWN ───────────────────
-        RequestCollisionAtCoord(pos.x, pos.y, pos.z)
+        RequestCollisionAtCoord(posX, posY, posZ)
         local collTimeout = GetGameTimer() + 6000
         while not HasCollisionLoadedAroundEntity(ped) and GetGameTimer() < collTimeout do
             Wait(50)
         end
 
-        NetworkResurrectLocalPlayer(pos.x, pos.y, pos.z, heading, true, true)
+        NetworkResurrectLocalPlayer(posX, posY, posZ, heading, true, true)
         Wait(0)
 
         ped = SafePed()
@@ -157,7 +156,6 @@ RegisterNetEvent("union:spawn:apply", function(characterData)
         resetSpawnGuard()
 
         -- ── 9. SERVER CONFIRM ─────────────────────────
-        -- FIX #2 : unique_id transmis
         TriggerServerEvent("union:spawn:confirm", characterData.unique_id)
 
         -- ── 10. EVENT LOCAL (HUD, Target, etc.) ───────

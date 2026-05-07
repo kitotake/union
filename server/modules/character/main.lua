@@ -1,7 +1,10 @@
 -- server/modules/character/main.lua
--- FIX CH1 : callback(true, selected) documenté — le callback ne doit pas re-déclencher spawn.
+-- FIX CH1 : callback(true, selected) documenté.
 -- FIX CH2 : applySkinData renommée pour clarifier l'effet de bord.
--- FIX CH3 : création du compte bancaire via BankDB.createAccount (avec retry unicité).
+-- FIX CH3 : création du compte bancaire via BankDB.createAccount avec owner_identifier.
+-- FIX CH4 : gender supprimé (colonne inexistante) — dérivé de ped_model uniquement.
+-- FIX CH5 : position transmise en JSON-sérialisable (vector3 non transmissible via NUI).
+-- FIX CH6 : charData.model remplacé par charData.ped_model partout.
 
 Character        = {}
 Character.logger = Logger:child("CHARACTER")
@@ -24,12 +27,11 @@ local function decodePosition(raw)
     return vector3(defPos.x, defPos.y, defPos.z), defHdg
 end
 
+-- FIX CH6 : ped_model est la colonne réelle (pas "model")
 local function resolveModel(selected)
-    -- Le modèle est maintenant stocké directement en base
     return selected.ped_model or "mp_m_freemode_01"
 end
 
--- FIX CH2 : nom explicite "ToCharData" pour indiquer la mutation
 local function applySkinDataToCharData(charData, appearance)
     if not (appearance and appearance.skin_data) then return end
 
@@ -60,6 +62,11 @@ function Character.create(player, data, callback)
     local dateofbirth = Utils.safeString(data.dateofbirth)
     local ped_model   = Utils.safeString(data.ped_model, 60)
 
+    -- FIX CH4 : pas de colonne gender — on valide ped_model uniquement
+    if ped_model ~= "mp_m_freemode_01" and ped_model ~= "mp_f_freemode_01" then
+        ped_model = "mp_m_freemode_01"
+    end
+
     CreateThread(function()
         local uniqueId = ServerUtils.generateUniqueId(12)
 
@@ -88,12 +95,11 @@ function Character.create(player, data, callback)
                 "INSERT INTO character_appearances (unique_id) VALUES (?)",
                 { uniqueId },
                 function()
-                    -- Créer la relation N-N entre user et character via user_character
                     Database.insert(
                         "INSERT INTO user_character (identifier, unique_id) VALUES (?, ?)",
                         { player.license, uniqueId },
                         function()
-                            -- FIX CH3 : utiliser BankDB.createAccount qui gère l'unicité
+                            -- FIX CH3 : passer player.license comme owner_identifier
                             BankDB.createAccount(uniqueId, "personal", function(accountId)
                                 if not accountId then
                                     Character.logger:warn("Compte bancaire non créé pour uid=" .. uniqueId)
@@ -107,7 +113,7 @@ function Character.create(player, data, callback)
                                 player:loadCharacters(function()
                                     if callback then callback(true, characterId, uniqueId) end
                                 end)
-                            end)
+                            end, player.license)  -- FIX CH3 : owner_identifier = licence
                         end
                     )
                 end
@@ -143,39 +149,40 @@ function Character.select(player, characterId, callback)
 
     local position, heading
 
+    -- FIX CH5 : position stockée en JSON (colonne `position` JSON), pas en x/y/z séparés
     if selected.position then
         position, heading = decodePosition(selected.position)
-    elseif selected.position_x and selected.position_x ~= 0 then
-        position = vector3(selected.position_x, selected.position_y, selected.position_z)
-        heading  = selected.heading or Config.spawn.defaultHeading
     else
         position = Config.spawn.defaultPosition
         heading  = Config.spawn.defaultHeading
     end
+
+    -- FIX CH4+CH6 : pas de gender en DB, ped_model est la colonne réelle
+    local pedModel = resolveModel(selected)
 
     local charData = {
         id          = selected.id,
         unique_id   = selected.unique_id,
         firstname   = selected.firstname,
         lastname    = selected.lastname,
-        ped_model   = resolveModel(selected),
-        dateofbirth = selected.dateofbirth,
-        position    = position,
+        ped_model   = pedModel,
+        -- FIX CH5 : transmettre position sous forme de table JSON-sérialisable
+        -- vector3 ne se sérialise pas correctement via TriggerClientEvent sur certaines versions
+        position    = { x = position.x, y = position.y, z = position.z },
         heading     = heading,
         health      = selected.health or Config.character.defaultHealth,
         armor       = selected.armor  or 0,
+        job         = selected.job    or "unemployed",
+        job_grade   = selected.job_grade or 0,
+        dateofbirth = selected.dateofbirth,
     }
 
     Database.fetchOne(
         "SELECT skin_data FROM character_appearances WHERE unique_id = ?",
         { selected.unique_id },
         function(appearance)
-            -- FIX CH2 : nom explicite
             applySkinDataToCharData(charData, appearance)
 
-            -- FIX CH1 : callback appelé AVANT TriggerClientEvent —
-            -- ATTENTION : le callback (ex: characterManager) NE DOIT PAS re-déclencher spawn.
-            -- union:spawn:apply est envoyé ici, c'est le seul chemin.
             if callback then callback(true, selected) end
 
             if not isPlayerConnected(player.source) then

@@ -1,6 +1,7 @@
 -- bridge/client/kt_target.lua
--- Bridge client vers kt_target
--- Synchronise le personnage actif via StateBags
+-- FIX KT-1 : gender dérivé de ped_model (pas de colonne gender en DB).
+-- FIX KT-2 : ped_model utilisé (colonne réelle, pas "model").
+-- FIX KT-3 : position reçue comme table { x, y, z } — convertie correctement.
 
 Bridge.Target = Bridge.create("kt_target")
 Bridge.register("kt_target", Bridge.Target)
@@ -16,29 +17,27 @@ local function syncCharacterState(charData)
         return
     end
 
-    -- Sécurisation du modèle
-    local model = charData.ped_model
+    -- FIX KT-2 : ped_model est la colonne réelle (pas "model")
+    local model = charData.ped_model or "mp_m_freemode_01"
     if model ~= "mp_m_freemode_01" and model ~= "mp_f_freemode_01" then
         model = "mp_m_freemode_01"
     end
 
-    -- Dérive le gender du modèle
+    -- FIX KT-1 : gender dérivé de ped_model (colonne gender absente de la DB)
     local gender = (model == "mp_f_freemode_01") and "f" or "m"
 
-    -- State principal
     LocalPlayer.state:set("character", {
         unique_id = charData.unique_id,
         firstname = charData.firstname or "",
-        lastname  = charData.lastname or "",
+        lastname  = charData.lastname  or "",
         gender    = gender,
         ped_model = model,
-        job       = charData.job or "unemployed",
+        job       = charData.job       or "unemployed",
         job_grade = charData.job_grade or 0,
     }, false)
 
-    -- State simplifié (compat scripts)
     LocalPlayer.state:set("job", {
-        name  = charData.job or "unemployed",
+        name  = charData.job       or "unemployed",
         grade = charData.job_grade or 0,
     }, false)
 end
@@ -47,7 +46,6 @@ end
 -- API PUBLIQUE — ZONES & ENTITÉS
 -- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
--- Ajoute une zone de target (box, sphere, poly…)
 function Bridge.Target.addZone(name, coords, options)
     if not Bridge.Target:isAvailable() then
         print(("^3[BRIDGE:kt_target] addZone '%s' ignoré — ressource non disponible^7"):format(tostring(name)))
@@ -65,7 +63,6 @@ function Bridge.Target.addZone(name, coords, options)
     return true
 end
 
--- Supprime une zone de target
 function Bridge.Target.removeZone(name)
     if not Bridge.Target:isAvailable() then return false end
 
@@ -80,7 +77,6 @@ function Bridge.Target.removeZone(name)
     return true
 end
 
--- Ajoute des options sur une entité (ped, vehicle, object)
 function Bridge.Target.addEntity(entities, options)
     if not Bridge.Target:isAvailable() then return false end
 
@@ -95,7 +91,6 @@ function Bridge.Target.addEntity(entities, options)
     return true
 end
 
--- Supprime des options d'une entité
 function Bridge.Target.removeEntity(entities, labels)
     if not Bridge.Target:isAvailable() then return false end
 
@@ -110,7 +105,6 @@ function Bridge.Target.removeEntity(entities, labels)
     return true
 end
 
--- Ajoute des options sur un modèle global
 function Bridge.Target.addModel(models, options)
     if not Bridge.Target:isAvailable() then return false end
 
@@ -129,12 +123,10 @@ end
 -- LIAISON AUX EVENTS UNION
 -- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
--- Synchronise le StateBag au spawn
 RegisterNetEvent("union:player:spawned", function(character)
     syncCharacterState(character or Client.currentCharacter)
 end)
 
--- Synchronise si le job change
 RegisterNetEvent("union:job:updated", function(job, grade)
     if Client.currentCharacter then
         Client.currentCharacter.job       = job
@@ -143,20 +135,16 @@ RegisterNetEvent("union:job:updated", function(job, grade)
     end
 end)
 
--- Réinitialise au déchargement du personnage
 AddEventHandler("union:character:unloaded", function()
     syncCharacterState(nil)
 end)
 
--- Export pour les scripts externes qui veulent lire le personnage actif
--- Usage depuis un autre script : exports["union"]:GetActiveCharacter()
--- (à ajouter dans bridge/client/exports.lua ou fxmanifest)
 exports("GetActiveCharacter", function()
     return Client.currentCharacter
 end)
 
 exports("GetActiveJob", function()
     if not Client.currentCharacter then return "unemployed", 0 end
-    return Client.currentCharacter.job or "unemployed",
+    return Client.currentCharacter.job       or "unemployed",
            Client.currentCharacter.job_grade or 0
 end)

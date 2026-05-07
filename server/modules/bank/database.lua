@@ -1,23 +1,27 @@
 -- server/modules/bank/database.lua
--- FIX : generateAccountNumber avec vérification DB pour éviter les doublons.
+-- FIX BD-1 : generateAccountNumber — boucle locale corrigée (charAt inexistant en Lua).
+-- FIX BD-2 : getTransactions — colonne transaction_uuid (pas unique_id) dans la jointure.
+-- FIX BD-3 : owner_identifier renseigné avec la licence du joueur si disponible,
+--            sinon fallback sur unique_id (la colonne est VARCHAR(60) NOT NULL).
 
 BankDB        = {}
 BankDB.logger = Logger:child("BANK:DATABASE")
 
--- FIX : génération sécurisée du numéro de compte
+-- Génère un numéro de compte unique avec vérification DB
 local function generateUniqueAccountNumber(callback)
     local function tryGenerate(attempts)
         if attempts > 10 then
-            -- Dernier recours avec timestamp
             local fallback = tostring(os.time()):sub(-10)
             callback(fallback)
             return
         end
 
-        local chars = "0123456789"
+        -- FIX BD-1 : string.sub au lieu de charAt (inexistant en Lua)
+        local chars  = "0123456789"
         local number = ""
         for _ = 1, 10 do
-            number = number .. chars:sub(math.random(#chars), math.random(#chars))
+            local idx = math.random(1, #chars)
+            number = number .. chars:sub(idx, idx)
         end
 
         Database.scalar(
@@ -37,11 +41,15 @@ local function generateUniqueAccountNumber(callback)
     tryGenerate(1)
 end
 
-function BankDB.createAccount(uniqueId, accountType, callback)
+-- FIX BD-3 : owner_identifier est VARCHAR(60) NOT NULL — on passe uniqueId en fallback
+-- si la licence n'est pas transmise. Les appelants peuvent passer ownerIdentifier en 4e arg.
+function BankDB.createAccount(uniqueId, accountType, callback, ownerIdentifier)
     generateUniqueAccountNumber(function(accountNumber)
+        local owner = ownerIdentifier or uniqueId   -- fallback : unique_id si pas de licence
+
         Database.insert(
-            "INSERT INTO bank_accounts (account_number, unique_id, owner_identifier, type, status, balance) VALUES (?, ?, ?, ?, ?, 0)",
-            { accountNumber, uniqueId, uniqueId, accountType or "personal", "active" },
+            "INSERT INTO bank_accounts (account_number, unique_id, owner_identifier, type, status, balance) VALUES (?, ?, ?, ?, 'active', 0)",
+            { accountNumber, uniqueId, owner, accountType or "personal" },
             function(accountId)
                 if accountId then
                     BankDB.logger:info("Compte créé : " .. accountNumber .. " (uid=" .. uniqueId .. ")")
@@ -55,14 +63,15 @@ function BankDB.createAccount(uniqueId, accountType, callback)
     end)
 end
 
--- Conservé pour compatibilité (utilisé localement)
+-- Gardé pour compatibilité interne (utilisé localement)
 function BankDB.generateAccountNumber()
-    local chars = "0123456789"
-    local accountNumber = ""
+    local chars  = "0123456789"
+    local number = ""
     for _ = 1, 10 do
-        accountNumber = accountNumber .. chars:sub(math.random(#chars), math.random(#chars))
+        local idx = math.random(1, #chars)
+        number = number .. chars:sub(idx, idx)
     end
-    return accountNumber
+    return number
 end
 
 function BankDB.getAccount(uniqueId, callback)
@@ -73,10 +82,17 @@ function BankDB.getAccount(uniqueId, callback)
     )
 end
 
+-- FIX BD-2 : la colonne s'appelle transaction_uuid dans bank_transactions (pas unique_id)
 function BankDB.getTransactions(uniqueId, limit, callback)
     limit = limit or 50
     Database.fetch(
-        "SELECT bt.* FROM bank_transactions bt JOIN bank_accounts ba ON ba.id = bt.account_id WHERE ba.unique_id = ? AND ba.type = 'personal' ORDER BY bt.created_at DESC LIMIT ?",
+        [[SELECT bt.id, bt.transaction_uuid, bt.type, bt.amount, bt.balance_after,
+                 bt.description, bt.source_identifier, bt.created_at
+          FROM bank_transactions bt
+          JOIN bank_accounts ba ON ba.id = bt.account_id
+          WHERE ba.unique_id = ? AND ba.type = 'personal'
+          ORDER BY bt.created_at DESC
+          LIMIT ?]],
         { uniqueId, limit },
         callback
     )

@@ -1,10 +1,21 @@
 -- bridge/server/statebags.lua
--- FIXES:
---   #1 : Player(src).state — accès protégé par pcall (crash si src invalide).
---   #2 : clearCharacter — vérification que src est un joueur encore connecté.
+-- FIX SB-1 : normalizePed définie localement (n'existait pas globalement).
+-- FIX SB-2 : gender dérivé de ped_model (colonne absente de la table characters).
+-- FIX SB-3 : position sérialisée en JSON avant set (vector3 non transmissible tel quel).
 
 StateBags = {}
 StateBags.logger = Logger:child("STATEBAGS")
+
+-- FIX SB-1 : helper local — ped_model est la colonne réelle (pas "model")
+local function normalizePed(pedModel)
+    local model = pedModel
+    if model ~= "mp_m_freemode_01" and model ~= "mp_f_freemode_01" then
+        model = "mp_m_freemode_01"
+    end
+    -- FIX SB-2 : gender dérivé du ped_model (pas de colonne gender en DB)
+    local gender = (model == "mp_f_freemode_01") and "f" or "m"
+    return model, gender
+end
 
 -- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 -- DONNÉES PARTAGÉES AU SPAWN

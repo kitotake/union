@@ -1,9 +1,10 @@
 -- server/modules/bank/main.lua
 -- FIX BK1 : txUniqueId utilise un compteur atomique pour éviter les collisions à la même seconde.
 -- FIX BK2 : Bank.transfer est maintenant atomique via une vraie transaction SQL.
---            Si le deposit échoue, le withdraw est rollbacké automatiquement.
--- FIX BK3 : Les handlers net capturent unique_id dès le début pour éviter la race condition
---            si player.currentCharacter change pendant le callback DB.
+-- FIX BK3 : Les handlers net capturent unique_id dès le début.
+-- FIX BK4 : Bank.logTransaction corrigé — colonne transaction_uuid (pas unique_id),
+--            balance_after ajouté (NOT NULL dans le schéma), sous-SELECT pour account_id.
+-- FIX BK5 : Withdraw utilise affectedRows correctement (oxmysql retourne rowsAffected).
 
 Bank        = {}
 Bank.logger = Logger:child("BANK")
@@ -39,12 +40,15 @@ function Bank.deposit(uniqueId, amount, description, callback)
         return
     end
 
+    -- Récupère le solde après mise à jour pour balance_after
     Database.execute([[
         UPDATE bank_accounts SET balance = balance + ?
         WHERE unique_id = ? AND type = 'personal'
     ]], { amount, uniqueId }, function(result)
-        if result then
-            Bank.logTransaction(uniqueId, amount, "deposit", description)
+        if result and (result.affectedRows or result) then
+            Bank.getBalance(uniqueId, function(newBalance)
+                Bank.logTransaction(uniqueId, amount, "deposit", description, newBalance)
+            end)
             Bank.logger:info(("Dépôt : %d pour %s"):format(amount, uniqueId))
             if callback then callback(true) end
         else
@@ -65,18 +69,20 @@ function Bank.withdraw(uniqueId, amount, description, callback)
             return
         end
 
+        -- La clause AND balance >= ? garantit l'atomicité contre les race conditions
         Database.execute([[
             UPDATE bank_accounts SET balance = balance - ?
             WHERE unique_id = ? AND type = 'personal' AND balance >= ?
         ]], { amount, uniqueId, amount }, function(result)
-            -- La clause AND balance >= ? assure qu'on ne tombe pas en négatif
-            -- même en cas de race condition (deux retraits simultanés)
-            if result and result.affectedRows and result.affectedRows > 0 then
-                Bank.logTransaction(uniqueId, amount, "withdraw", description)
+            -- FIX BK5 : oxmysql retourne affectedRows dans result (table)
+            local affected = type(result) == "table" and (result.affectedRows or 0) or (result or 0)
+            if affected and affected > 0 then
+                Bank.getBalance(uniqueId, function(newBalance)
+                    Bank.logTransaction(uniqueId, amount, "withdraw", description, newBalance)
+                end)
                 Bank.logger:info(("Retrait : %d pour %s"):format(amount, uniqueId))
                 if callback then callback(true) end
             else
-                -- Solde insuffisant ou race condition
                 if callback then callback(false) end
             end
         end)
@@ -84,21 +90,18 @@ function Bank.withdraw(uniqueId, amount, description, callback)
 end
 
 -- FIX BK2 : transfert atomique via transaction SQL
--- Si l'une des deux opérations échoue, tout est rollbacké.
 function Bank.transfer(fromId, toId, amount, description, callback)
     if not fromId or not toId or not amount or amount <= 0 then
         if callback then callback(false) end
         return
     end
 
-    -- Vérifier solde d'abord
     Bank.getBalance(fromId, function(balance)
         if balance < amount then
             if callback then callback(false) end
             return
         end
 
-        -- FIX BK2 : transaction SQL atomique
         Database.transaction({
             {
                 query  = "UPDATE bank_accounts SET balance = balance - ? WHERE unique_id = ? AND type = 'personal' AND balance >= ?",
@@ -110,8 +113,13 @@ function Bank.transfer(fromId, toId, amount, description, callback)
             },
         }, function(success)
             if success then
-                Bank.logTransaction(fromId, amount, "transfer", "Transfert vers " .. toId)
-                Bank.logTransaction(toId,   amount, "deposit",  "Transfert depuis " .. fromId)
+                -- Logs asynchrones après confirmation
+                Bank.getBalance(fromId, function(b1)
+                    Bank.logTransaction(fromId, amount, "transfer_out", "Transfert vers " .. toId, b1)
+                end)
+                Bank.getBalance(toId, function(b2)
+                    Bank.logTransaction(toId, amount, "transfer_in", "Transfert depuis " .. fromId, b2)
+                end)
                 Bank.logger:info(("Transfert : %d de %s vers %s"):format(amount, fromId, toId))
                 if callback then callback(true) end
             else
@@ -122,17 +130,37 @@ function Bank.transfer(fromId, toId, amount, description, callback)
     end)
 end
 
--- FIX BK1 : ID unique via compteur atomique
-function Bank.logTransaction(uniqueId, amount, txType, description)
+-- FIX BK4 : colonnes corrigées selon le schéma réel de bank_transactions :
+--   - transaction_uuid  (VARCHAR 36, UNIQUE) ← était nommé "unique_id" dans l'ancien code
+--   - balance_after     (BIGINT NOT NULL)    ← manquait complètement
+--   - account_id        résolu via sous-SELECT sur bank_accounts
+--   - type              ENUM valide : 'deposit','withdraw','transfer_in','transfer_out','admin'
+function Bank.logTransaction(uniqueId, amount, txType, description, balanceAfter)
     local txUniqueId = nextTxId()
+    balanceAfter = balanceAfter or 0
+
+    -- Valide le type ENUM (schéma : deposit|withdraw|transfer_in|transfer_out|admin)
+    local validTypes = {
+        deposit      = true,
+        withdraw     = true,
+        transfer_in  = true,
+        transfer_out = true,
+        admin        = true,
+    }
+    if not validTypes[txType] then
+        Bank.logger:warn(("logTransaction: type ENUM invalide '%s' → remplacé par 'admin'"):format(tostring(txType)))
+        txType = "admin"
+    end
+
     Database.execute([[
         INSERT INTO bank_transactions
-            (account_id, unique_id, amount, description, type)
-        SELECT id, ?, ?, ?, ?
+            (account_id, transaction_uuid, type, amount, balance_after, description)
+        SELECT id, ?, ?, ?, ?, ?
         FROM bank_accounts
         WHERE unique_id = ? AND type = 'personal'
         LIMIT 1
-    ]], { txUniqueId, amount, description or "", txType, uniqueId }, function(result)
+    ]], { txUniqueId, txType, amount, balanceAfter, description or "", uniqueId },
+    function(result)
         if result then
             Bank.logger:debug("Transaction enregistrée : " .. txUniqueId)
         else
@@ -143,7 +171,7 @@ end
 
 -- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 -- NET EVENTS
--- FIX BK3 : capture unique_id au début du handler (avant tout callback async)
+-- FIX BK3 : capture unique_id au début du handler
 -- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 RegisterNetEvent("union:bank:getBalance", function()
@@ -151,7 +179,6 @@ RegisterNetEvent("union:bank:getBalance", function()
     local player = PlayerManager.get(src)
     if not player or not player.currentCharacter then return end
 
-    -- FIX BK3 : capturer immédiatement
     local uid = player.currentCharacter.unique_id
 
     Bank.getBalance(uid, function(balance)
@@ -169,7 +196,6 @@ RegisterNetEvent("union:bank:deposit", function(amount)
     amount = tonumber(amount)
     if not amount or amount <= 0 then return end
 
-    -- FIX BK3
     local uid = player.currentCharacter.unique_id
 
     Bank.deposit(uid, amount, "Dépôt manuel", function(success)
@@ -194,7 +220,6 @@ RegisterNetEvent("union:bank:withdraw", function(amount)
     amount = tonumber(amount)
     if not amount or amount <= 0 then return end
 
-    -- FIX BK3
     local uid = player.currentCharacter.unique_id
 
     Bank.withdraw(uid, amount, "Retrait manuel", function(success)
@@ -221,7 +246,6 @@ RegisterNetEvent("union:bank:transfer", function(targetId, amount)
     amount = tonumber(amount)
     if not amount or amount <= 0 then return end
 
-    -- FIX BK3
     local fromUid  = player.currentCharacter.unique_id
     local fromName = player.name
 
@@ -232,7 +256,6 @@ RegisterNetEvent("union:bank:transfer", function(targetId, amount)
         return
     end
 
-    -- FIX BK3
     local toUid  = target.currentCharacter.unique_id
     local toName = target.name
 
@@ -252,7 +275,6 @@ RegisterNetEvent("union:bank:transactions", function()
     local player = PlayerManager.get(src)
     if not player or not player.currentCharacter then return end
 
-    -- FIX BK3
     local uid = player.currentCharacter.unique_id
 
     BankDB.getTransactions(uid, 10, function(transactions)
