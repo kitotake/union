@@ -197,6 +197,9 @@ server_exports {
     'AddPlayerStat',
     'SetStat',
     'AddStat',
+
+    -- Character                  ← ajouter ici
+    'GiveCharacter',
 }
 
 -- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

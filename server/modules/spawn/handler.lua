@@ -1,8 +1,11 @@
 -- server/modules/spawn/handler.lua
--- FIX SH-1 : _buildCharData — ped_model (colonne réelle, pas "model").
+-- FIX SH-1 : ped_model (colonne réelle, pas "model").
 -- FIX SH-2 : position transmise comme table JSON-sérialisable (pas vector3 brut).
 -- FIX SH-3 : guard anti-double confirm avec nettoyage fiable.
 -- FIX SH-4 : SpawnHandler._confirming nettoyé immédiatement à playerDropped.
+-- FIX SH-5 : auto-spawn 1 personnage — le fallback ne doit PAS envoyer un 2ème
+--            spawn:apply si Character.select() a déjà déclenché le premier.
+--            On utilise un flag _selectSent pour garantir un seul envoi.
 
 SpawnHandler        = {}
 SpawnHandler.logger = Logger:child("SPAWN:HANDLER")
@@ -50,14 +53,29 @@ RegisterNetEvent("union:spawn:requestInitial", function()
 
     if #chars == 1 then
         SpawnHandler.logger:info(("Joueur %s : 1 personnage → auto-spawn"):format(player.name))
+
+        -- FIX SH-5 : flag local pour éviter le double envoi.
+        -- Character.select() déclenche spawn:apply via TriggerClientEvent.
+        -- En cas d'échec de select (DB fail, etc.), on envoie un fallback
+        -- UNIQUEMENT si select() n'a pas déjà émis spawn:apply.
+        local spawnSent = false
+
         Character.select(player, chars[1].id, function(success)
-            if not success then
+            if success then
+                -- Character.select() a déjà appelé TriggerClientEvent("union:spawn:apply")
+                -- dans character/main.lua — on ne renvoie rien ici.
+                spawnSent = true
+                SpawnHandler.logger:info(("Auto-spawn OK pour %s"):format(player.name))
+            else
                 SpawnHandler.logger:error("Auto-select échoué pour " .. player.name)
-                if isConnected(src) then
+                -- Fallback uniquement si aucun spawn:apply n'a été émis
+                if not spawnSent and isConnected(src) then
+                    spawnSent = true
                     TriggerClientEvent("union:spawn:apply", src, SpawnHandler._buildCharData(chars[1]))
                 end
             end
         end)
+
         return
     end
 
@@ -102,12 +120,12 @@ function SpawnHandler._buildCharData(char)
         -- FIX SH-1 : ped_model est la colonne réelle (pas "model")
         ped_model   = char.ped_model or Config.spawn.defaultModel,
         dateofbirth = char.dateofbirth,
-        -- FIX SH-2 : table JSON-sérialisable (pas vector3 — peut causer des sérialisation issues)
+        -- FIX SH-2 : table JSON-sérialisable (pas vector3)
         position    = { x = px, y = py, z = pz },
         heading     = heading,
-        health      = char.health or Config.character.defaultHealth,
-        armor       = char.armor  or 0,
-        job         = char.job    or "unemployed",
+        health      = char.health    or Config.character.defaultHealth,
+        armor       = char.armor     or 0,
+        job         = char.job       or "unemployed",
         job_grade   = char.job_grade or 0,
     }
 end
@@ -204,7 +222,6 @@ end)
 AddEventHandler("onResourceStart", function(resource)
     if resource ~= GetCurrentResourceName() then return end
 
-    -- Re-initialiser tous les joueurs déjà connectés
     for _, playerId in ipairs(GetPlayers()) do
         local src = tonumber(playerId)
         if src and not PlayerManager.get(src) then
