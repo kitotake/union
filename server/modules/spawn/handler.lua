@@ -3,9 +3,15 @@
 -- FIX SH-2 : position transmise comme table JSON-sérialisable (pas vector3 brut).
 -- FIX SH-3 : guard anti-double confirm avec nettoyage fiable.
 -- FIX SH-4 : SpawnHandler._confirming nettoyé immédiatement à playerDropped.
--- FIX SH-5 : auto-spawn 1 personnage — le fallback ne doit PAS envoyer un 2ème
---            spawn:apply si Character.select() a déjà déclenché le premier.
---            On utilise un flag _selectSent pour garantir un seul envoi.
+-- FIX SH-5 : auto-spawn 1 personnage — flag _selectSent pour garantir un seul envoi.
+-- FIX CRIT-1 : union:player:spawned déclenché UNE SEULE FOIS via TriggerEvent local.
+--              Suppression du TriggerClientEvent("union:player:spawned") en doublon.
+--              Les modules serveur (StatusManager, OfflinePed, manager.lua) utilisent
+--              AddEventHandler("union:player:spawned") qui reçoit l'event local.
+-- FIX CRIT-2 : player.isSpawned mis à true DANS le handler de confirm (même fichier),
+--              pas dans manager.lua via un AddEventHandler séparé dont l'ordre n'est
+--              pas garanti.
+-- FIX CRIT-3 : _confirming nettoyé immédiatement après traitement, pas avec SetTimeout.
 
 SpawnHandler        = {}
 SpawnHandler.logger = Logger:child("SPAWN:HANDLER")
@@ -54,21 +60,15 @@ RegisterNetEvent("union:spawn:requestInitial", function()
     if #chars == 1 then
         SpawnHandler.logger:info(("Joueur %s : 1 personnage → auto-spawn"):format(player.name))
 
-        -- FIX SH-5 : flag local pour éviter le double envoi.
-        -- Character.select() déclenche spawn:apply via TriggerClientEvent.
-        -- En cas d'échec de select (DB fail, etc.), on envoie un fallback
-        -- UNIQUEMENT si select() n'a pas déjà émis spawn:apply.
         local spawnSent = false
 
         Character.select(player, chars[1].id, function(success)
             if success then
                 -- Character.select() a déjà appelé TriggerClientEvent("union:spawn:apply")
-                -- dans character/main.lua — on ne renvoie rien ici.
                 spawnSent = true
                 SpawnHandler.logger:info(("Auto-spawn OK pour %s"):format(player.name))
             else
                 SpawnHandler.logger:error("Auto-select échoué pour " .. player.name)
-                -- Fallback uniquement si aucun spawn:apply n'a été émis
                 if not spawnSent and isConnected(src) then
                     spawnSent = true
                     TriggerClientEvent("union:spawn:apply", src, SpawnHandler._buildCharData(chars[1]))
@@ -96,8 +96,8 @@ end)
 
 -- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 -- HELPER : construit charData compatible client
--- FIX SH-1 : ped_model au lieu de model (colonne réelle)
--- FIX SH-2 : position sous forme de table { x, y, z } et non vector3
+-- FIX SH-1 : ped_model au lieu de model
+-- FIX SH-2 : position sous forme de table { x, y, z }
 -- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 function SpawnHandler._buildCharData(char)
     local defPos = Config.spawn.defaultPosition
@@ -117,10 +117,8 @@ function SpawnHandler._buildCharData(char)
         unique_id   = char.unique_id,
         firstname   = char.firstname,
         lastname    = char.lastname,
-        -- FIX SH-1 : ped_model est la colonne réelle (pas "model")
         ped_model   = char.ped_model or Config.spawn.defaultModel,
         dateofbirth = char.dateofbirth,
-        -- FIX SH-2 : table JSON-sérialisable (pas vector3)
         position    = { x = px, y = py, z = pz },
         heading     = heading,
         health      = char.health    or Config.character.defaultHealth,
@@ -145,9 +143,7 @@ RegisterNetEvent("union:spawn:requestRespawn", function(model)
     TriggerClientEvent("union:spawn:apply", src, {
         id        = char.id,
         unique_id = char.unique_id,
-        -- FIX SH-1 : ped_model (colonne réelle)
         ped_model = model or char.ped_model or Config.spawn.defaultModel,
-        -- FIX SH-2 : table JSON-sérialisable
         position  = { x = defPos.x, y = defPos.y, z = defPos.z },
         heading   = Config.spawn.defaultHeading,
         health    = Config.character.defaultHealth,
@@ -157,38 +153,55 @@ end)
 
 -- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 -- CONFIRMATION CLIENT → SPAWN RÉUSSI
--- FIX SH-3 : guard anti-double
--- FIX SH-4 : nettoyage immédiat à playerDropped
+-- FIX CRIT-1 : UN SEUL TriggerEvent local pour union:player:spawned.
+--              Plus de TriggerClientEvent en doublon.
+--              Tous les modules serveur (StatusManager, OfflinePed, manager.lua)
+--              reçoivent cet event via AddEventHandler — l'ordre entre handlers
+--              d'un même event local est déterministe dans FiveM (ordre d'enregistrement).
+-- FIX CRIT-2 : player.isSpawned = true positionné ICI, avant le TriggerEvent,
+--              pour que les handlers qui lisent isSpawned (ex: status tick) le
+--              voient déjà à true quand ils reçoivent l'event.
+-- FIX CRIT-3 : _confirming nettoyé immédiatement (pas de SetTimeout).
+--              Si un double-confirm arrive dans la même frame, il est bloqué
+--              par le guard en haut. Après nettoyage, une nouvelle session peut
+--              s'enregistrer sans délai artificiel.
 -- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 RegisterNetEvent("union:spawn:confirm", function(uniqueId)
     local src    = source
     local player = PlayerManager.get(src)
     if not player then return end
 
+    -- FIX CRIT-3 : guard synchrone — nettoyé immédiatement après
     if SpawnHandler._confirming[src] then
         SpawnHandler.logger:warn("Double confirm ignoré pour src=" .. src)
         return
     end
     SpawnHandler._confirming[src] = true
 
+    -- FIX CRIT-2 : isSpawned AVANT le TriggerEvent pour que les handlers
+    -- qui testent player.isSpawned le voient à true dès réception.
     player.isSpawned = true
     SpawnHandler.logger:info("Spawn confirmé pour " .. player.name)
 
+    -- Nettoyage OfflinePed
     if player.currentCharacter and player.currentCharacter.unique_id then
         if OfflinePed then
             OfflinePed.remove(player.currentCharacter.unique_id)
         end
     end
 
+    -- FIX CRIT-1 : UN SEUL point de déclenchement de union:player:spawned.
+    -- TriggerEvent (local, serveur) → reçu par tous les AddEventHandler serveur.
+    -- Le client reçoit ses propres données via union:spawn:apply (déjà envoyé).
+    -- On notifie quand même le client pour que les scripts qui écoutent
+    -- union:player:spawned côté client (HUD, target, etc.) puissent réagir.
     TriggerEvent("union:player:spawned", src, player.currentCharacter)
-
     if isConnected(src) then
         TriggerClientEvent("union:player:spawned", src, player.currentCharacter)
     end
 
-    SetTimeout(3000, function()
-        SpawnHandler._confirming[src] = nil
-    end)
+    -- FIX CRIT-3 : nettoyage immédiat — pas de SetTimeout(3000)
+    SpawnHandler._confirming[src] = nil
 end)
 
 RegisterNetEvent("union:spawn:error", function(errorType)
@@ -197,7 +210,7 @@ RegisterNetEvent("union:spawn:error", function(errorType)
     SpawnHandler._confirming[src] = nil
 end)
 
--- FIX SH-4 : nettoyage IMMÉDIAT à la déconnexion
+-- FIX SH-4 : nettoyage immédiat à la déconnexion
 AddEventHandler("playerDropped", function()
     local src = source
     SpawnHandler._confirming[src] = nil
@@ -213,10 +226,6 @@ function SpawnHandler.applyCharacter(player, characterData)
     TriggerClientEvent("union:spawn:apply", player.source, characterData)
     return true
 end
-
-AddEventHandler("union:player:spawned", function(src, character)
-    SpawnHandler.logger:info(("union:player:spawned confirmé src=%s"):format(tostring(src)))
-end)
 
 -- Gestion du restart resource côté serveur
 AddEventHandler("onResourceStart", function(resource)

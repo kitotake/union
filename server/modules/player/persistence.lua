@@ -1,10 +1,15 @@
 -- server/modules/player/persistence.lua
--- FIXES:
---   #1 : savePlayer() vérifie player.isSpawned avant de sauvegarder.
---        Évite d'écraser la dernière position valide avec des coords de spawn/zéro.
---   #2 : saveAllPlayers() ignore les joueurs non spawnés.
---   #3 : Vérification supplémentaire que les coords ne sont pas nulles (0,0,0)
---        avant d'écraser la position en base.
+-- FIX CRIT-4 : GetEntityCoords(ped) côté serveur retourne toujours 0,0,0 pour les
+--              peds des clients. La vraie position est maintenue dans
+--              player.currentCharacter.position, mise à jour à chaque réception
+--              de union:position:save (SpawnPosition) et à la déco (playerDropped
+--              dans manager.lua qui lit aussi cette valeur).
+--              On lit donc directement player.currentCharacter.position au lieu
+--              d'appeler GetEntityCoords. Le health/armor ne peut pas être lu
+--              non plus côté serveur — on conserve les dernières valeurs connues.
+-- FIX #1 : savePlayer() vérifie player.isSpawned avant de sauvegarder.
+-- FIX #2 : saveAllPlayers() ignore les joueurs non spawnés.
+-- FIX #3 : Vérification que les coords ne sont pas nulles (0,0,0).
 
 Persistence = {}
 Persistence.logger = Logger:child("PERSISTENCE")
@@ -21,28 +26,50 @@ function Persistence.savePlayer(player)
         return false
     end
 
-    local ped = GetPlayerPed(player.source)
-    if not DoesEntityExist(ped) then
+    local char = player.currentCharacter
+
+    -- FIX CRIT-4 : lire la position depuis la structure en mémoire (mise à jour
+    -- par union:position:save côté client via SpawnPosition.save).
+    -- On NE PAS utiliser GetEntityCoords qui retourne 0,0,0 pour les clients.
+    local posData = char.position
+    if not posData then
+        Persistence.logger:warn("Skip save (position nil) : " .. (player.name or "?"))
         return false
     end
 
-    local coords  = GetEntityCoords(ped)
-    local heading = GetEntityHeading(ped)
-    local health  = GetEntityHealth(ped)
-    local armor   = GetPedArmour(ped)
+    -- Normalise la position en table si nécessaire
+    local px, py, pz, heading
+    if type(posData) == "table" then
+        px, py, pz   = posData.x, posData.y, posData.z
+        heading      = posData.heading or char.heading or 0.0
+    elseif type(posData) == "string" then
+        local ok, p = pcall(json.decode, posData)
+        if ok and p and p.x then
+            px, py, pz = p.x, p.y, p.z
+            heading    = p.heading or char.heading or 0.0
+        end
+    elseif type(posData) == "vector3" then
+        px, py, pz = posData.x, posData.y, posData.z
+        heading    = char.heading or 0.0
+    end
 
-    -- FIX #3 : ne pas sauvegarder des coords nulles (joueur en cours de spawn)
-    if math.abs(coords.x) < 1.0 and math.abs(coords.y) < 1.0 then
+    -- FIX #3 : skip si coords nulles
+    if not px or (math.abs(px) < 1.0 and math.abs(py or 0) < 1.0) then
         Persistence.logger:warn("Skip save (coords nulles) : " .. (player.name or "?"))
         return false
     end
 
     local posJson = json.encode({
-        x       = coords.x,
-        y       = coords.y,
-        z       = coords.z,
-        heading = heading
+        x       = px,
+        y       = py,
+        z       = pz,
+        heading = heading,
     })
+
+    -- health/armor : dernières valeurs connues en mémoire
+    -- (mises à jour par union:spawn:confirm et union:position:save)
+    local health = char.health or Config.character.defaultHealth
+    local armor  = char.armor  or 0
 
     Database.execute([[
         UPDATE characters SET
@@ -51,7 +78,7 @@ function Persistence.savePlayer(player)
         WHERE unique_id = ?
     ]], {
         posJson, health, armor,
-        player.currentCharacter.unique_id
+        char.unique_id
     }, function(result)
         if result then
             Persistence.logger:debug("Saved: " .. player.name)
@@ -64,11 +91,11 @@ function Persistence.savePlayer(player)
 end
 
 function Persistence.saveAllPlayers()
-    local saved  = 0
+    local saved   = 0
     local skipped = 0
 
     for _, player in pairs(PlayerManager.getAll()) do
-        -- FIX #2 : ignorer les joueurs non spawnés dans la boucle globale
+        -- FIX #2 : ignorer les joueurs non spawnés
         if player.isSpawned then
             if Persistence.savePlayer(player) then
                 saved = saved + 1
@@ -95,8 +122,6 @@ end)
 AddEventHandler("onResourceStop", function(resource)
     if resource == GetCurrentResourceName() then
         Persistence.logger:info("Saving all players before shutdown...")
-        -- Au shutdown on sauvegarde tout le monde, spawné ou non,
-        -- pour ne pas perdre de données critiques
         for _, player in pairs(PlayerManager.getAll()) do
             Persistence.savePlayer(player)
         end

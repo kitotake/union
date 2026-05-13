@@ -1,4 +1,7 @@
 -- server/modules/player/status/status_tick.lua
+-- FIX NOTE-3 : les deux boucles d'attente (StatusConfig et Server.isReady)
+--   n'avaient ni timeout ni log d'erreur — elles tournaient à vide indéfiniment
+--   si la config ne se chargeait jamais. Ajout d'un timeout de 60s avec log fatal.
 
 print("[STATUS] Tick loaded")
 
@@ -18,10 +21,16 @@ end
 -- MAIN TICK
 -- ─────────────────────────────────────────────
 CreateThread(function()
-    -- Guard : attendre que StatusConfig soit chargé
+    -- FIX NOTE-3 : timeout 60s sur l'attente de StatusConfig
+    local waitedConfig = 0
     while not StatusConfig or not StatusConfig.tickInterval do
         print("^3[STATUS][TICK] En attente de StatusConfig...^0")
         Wait(1000)
+        waitedConfig = waitedConfig + 1
+        if waitedConfig >= 60 then
+            print("^1[STATUS][TICK][FATAL] StatusConfig non disponible après 60s — tick abandonné^0")
+            return
+        end
     end
 
     print(("^2[STATUS][TICK] Démarrage — interval=%dms decay h=%.1f t=%.1f^0"):format(
@@ -66,8 +75,6 @@ CreateThread(function()
                     TriggerClientEvent("union:status:stress:low",  src)
                 end
 
-                --debug(("tick src=%s | h=%d t=%d s=%d [%s]"):format(tostring(src),status.hunger,status.thirst,status.stress,os.date("%H:%M:%S")))
-
                 ::continue::
             end
         end
@@ -80,12 +87,25 @@ end)
 -- SAVE LOOP
 -- ─────────────────────────────────────────────
 CreateThread(function()
+    -- FIX NOTE-3 : timeout 60s sur StatusConfig ET Server.isReady
+    local waitedSave = 0
     while not StatusConfig or not StatusConfig.saveInterval do
         Wait(1000)
+        waitedSave = waitedSave + 1
+        if waitedSave >= 60 then
+            print("^1[STATUS][SAVE][FATAL] StatusConfig non disponible après 60s — save loop abandonnée^0")
+            return
+        end
     end
 
+    local waitedServer = 0
     while not Server.isReady do
         Wait(1000)
+        waitedServer = waitedServer + 1
+        if waitedServer >= 60 then
+            print("^1[STATUS][SAVE][FATAL] Server.isReady jamais true après 60s — save loop abandonnée^0")
+            return
+        end
     end
 
     while true do

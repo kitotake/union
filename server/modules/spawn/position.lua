@@ -1,9 +1,16 @@
 -- server/modules/spawn/position.lua
--- FIX #D : suppression de "heading" dans le SELECT (colonne inexistante dans la table)
---          Le heading est stocké dans la colonne JSON "position", pas séparément
+-- FIX #D : suppression de "heading" dans le SELECT (colonne inexistante).
+-- FIX NOTE-4 : ajout d'un cooldown anti-flood sur union:position:save.
+--   Sans protection, un client malveillant peut envoyer cet event en boucle
+--   et saturer la base de données. On refuse les saves trop rapprochés
+--   (< Config.spawn.saveInterval / 10, ou 3s minimum).
 
 SpawnPosition = {}
 SpawnPosition.logger = Logger:child("SPAWN:POSITION")
+
+-- Timestamps de la dernière sauvegarde par source
+local _lastSave    = {}
+local MIN_INTERVAL = 3000  -- 3 secondes minimum entre deux saves position
 
 function SpawnPosition.save(player, position, heading)
     if not player then return false end
@@ -25,6 +32,15 @@ function SpawnPosition.save(player, position, heading)
         heading = heading or 0.0
     })
 
+    -- Mise à jour de la position en mémoire (utilisée par Persistence.savePlayer)
+    player.currentCharacter.position = {
+        x       = position.x,
+        y       = position.y,
+        z       = position.z,
+        heading = heading or 0.0,
+    }
+    player.currentCharacter.heading = heading or 0.0
+
     Database.execute([[
         UPDATE characters SET position = ?
         WHERE unique_id = ?
@@ -43,7 +59,7 @@ function SpawnPosition.save(player, position, heading)
 end
 
 function SpawnPosition.load(uniqueId, callback)
-    -- FIX #D : retrait de "heading" du SELECT (n'existe pas comme colonne séparée)
+    -- FIX #D : retrait de "heading" du SELECT
     Database.fetchOne(
         "SELECT position FROM characters WHERE unique_id = ?",
         { uniqueId },
@@ -68,8 +84,17 @@ function SpawnPosition.isValid(position)
     return true
 end
 
+-- FIX NOTE-4 : cooldown anti-flood
 RegisterNetEvent("union:position:save", function(position, heading)
-    local src    = source
+    local src = source
+
+    -- Anti-flood : ignorer si trop fréquent
+    local now = GetGameTimer()
+    if _lastSave[src] and (now - _lastSave[src]) < MIN_INTERVAL then
+        return
+    end
+    _lastSave[src] = now
+
     local player = PlayerManager.get(src)
     if not player then return end
     if not player.currentCharacter then return end
@@ -77,6 +102,11 @@ RegisterNetEvent("union:position:save", function(position, heading)
 
     SpawnPosition.save(player, position, heading)
     TriggerClientEvent("union:position:loaded", src, position, heading)
+end)
+
+-- Nettoyage à la déco
+AddEventHandler("union:player:dropping", function(src)
+    _lastSave[src] = nil
 end)
 
 return SpawnPosition

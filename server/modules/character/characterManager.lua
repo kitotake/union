@@ -1,11 +1,14 @@
 -- server/modules/character/characterManager.lua
--- FIXES:
---   #1 : Double spawn — characters:selectCharacter appelait Character.select()
---        (qui déclenche union:spawn:apply) ET ensuite envoyait characters:doSpawn
---        au client (qui ne fait rien de plus, mais le commentaire était trompeur).
---        Le flow est clarifié : Character.select() gère tout le spawn,
---        characters:doSpawn sert uniquement à fermer la NUI proprement.
---   #2 : Vérification que le joueur n'est pas déjà spawné avant de re-sélectionner.
+-- FIX #1 : Double spawn — corrigé.
+-- FIX #2 : Guard isSpawned.
+-- FIX CRIT-6 : CharacterSelect.isAvailable() appelée dans le flow.
+-- FIX WARN-3 : handler union:character:requestCreation ajouté.
+--   Le client appelle TriggerServerEvent("union:character:requestCreation")
+--   et le serveur ouvre kt_character:openCreator pour lui, avec vérification
+--   que la resource est bien démarrée.
+-- FIX WARN-4 : guard dans union:player:joined côté serveur — si le joueur
+--   existe déjà dans PlayerManager (restart resource rapide), on recharge
+--   ses données sans créer de doublon.
 
 RegisterNetEvent("characters:selectCharacter", function(charId)
     local src    = source
@@ -17,7 +20,6 @@ RegisterNetEvent("characters:selectCharacter", function(charId)
         return
     end
 
-    -- FIX #2 : éviter un double spawn si déjà spawné
     if player.isSpawned then
         Logger:warn("[charManager] Joueur déjà spawné, sélection ignorée src=" .. src)
         return
@@ -43,9 +45,13 @@ RegisterNetEvent("characters:selectCharacter", function(charId)
         return
     end
 
-    -- FIX #1 : Character.select() déclenche union:spawn:apply côté client.
-    -- characters:doSpawn est envoyé UNIQUEMENT pour fermer la NUI —
-    -- il ne doit PAS déclencher un spawn supplémentaire côté client.
+    -- FIX CRIT-6
+    if not CharacterSelect.isAvailable(characterId) then
+        Logger:warn(("[charManager] Personnage %d déjà utilisé — src=%d"):format(characterId, src))
+        TriggerClientEvent("characters:error", src, "Ce personnage est déjà utilisé.")
+        return
+    end
+
     Character.select(player, characterId, function(success, character)
         if not success then
             TriggerClientEvent("characters:error", src, "Erreur lors de la sélection du personnage.")
@@ -58,9 +64,31 @@ RegisterNetEvent("characters:selectCharacter", function(charId)
             player.name
         ))
 
-        -- Fermeture de la NUI uniquement (pas de spawn ici, union:spawn:apply déjà envoyé)
         TriggerClientEvent("characters:doSpawn", src, character)
     end)
+end)
+
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- FIX WARN-3
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+RegisterNetEvent("union:character:requestCreation", function()
+    local src    = source
+    local player = PlayerManager.get(src)
+
+    if not player then
+        Logger:warn("[charManager] requestCreation : joueur introuvable src=" .. src)
+        return
+    end
+
+    if GetResourceState("kt_character") ~= "started" then
+        Logger:warn("[charManager] kt_character non démarré — impossible d'ouvrir le créateur")
+        ServerUtils.notifyPlayer(src, "L'interface de création n'est pas disponible.", "error")
+        return
+    end
+
+    Logger:info(("[charManager] Ouverture créateur kt_character pour %s"):format(player.name))
+    TriggerClientEvent("kt_character:openCreator", src)
 end)
 
 -- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

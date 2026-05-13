@@ -1,4 +1,10 @@
 -- server/modules/player/status/manager.lua
+-- FIX CRIT-5 : Le handler de déconnexion utilise maintenant union:player:dropping
+--   (déclenché par manager.lua AVANT PlayerManager.remove) au lieu de playerDropped.
+--   Cela garantit que PlayerManager.get(src) retourne encore le joueur quand
+--   StatusManager veut lire sa licence pour la sauvegarde.
+--   Le snapshot de la licence est fait en début de handler pour éviter toute
+--   dépendance sur l'ordre des handlers suivants.
 
 print("[STATUS] Manager chargé")
 
@@ -128,8 +134,8 @@ function StatusManager.save(src, status, identifier)
     ))
 
     exports.oxmysql:execute([[
-        INSERT INTO player_status ( unique_id, hunger, thirst, stress, last_update)
-        VALUES ( ?, ?, ?, ?, NOW())
+        INSERT INTO player_status (unique_id, hunger, thirst, stress, last_update)
+        VALUES (?, ?, ?, ?, NOW())
         ON DUPLICATE KEY UPDATE
             hunger      = VALUES(hunger),
             thirst      = VALUES(thirst),
@@ -169,10 +175,6 @@ function StatusManager.add(src, stat, value)
     StatusManager.set(src, stat, (s[stat] or 0) + (value or 0))
 end
 
--- ─────────────────────────────────────────────
--- SET IMMÉDIAT
--- ─────────────────────────────────────────────
-
 function StatusManager.setAndSend(src, stat, value)
     StatusManager.set(src, stat, value)
     local s = StatusManager.cache[src]
@@ -184,10 +186,6 @@ function StatusManager.setAndSend(src, stat, value)
     })
     s._pendingSend = false
 end
-
--- ─────────────────────────────────────────────
--- FLUSH GROUPÉ
--- ─────────────────────────────────────────────
 
 function StatusManager.flushPendingSends()
     for src, status in pairs(StatusManager.cache) do
@@ -237,19 +235,21 @@ end)
 
 -- ─────────────────────────────────────────────
 -- DÉCONNEXION
+-- FIX CRIT-5 : écoute union:player:dropping (déclenché par manager.lua AVANT
+-- PlayerManager.remove) au lieu de playerDropped.
+-- Le joueur est garanti présent dans PlayerManager à ce moment.
+-- On snapshotte la licence immédiatement en début de handler.
 -- ─────────────────────────────────────────────
 
-AddEventHandler("playerDropped", function()
-    local src = source
-    local license = nil
-    local player  = PlayerManager.get(src)
-    if player then license = player.license end
+AddEventHandler("union:player:dropping", function(src, player, reason)
+    -- player est passé directement par manager.lua — pas besoin de PlayerManager.get
+    local license = player and player.license or nil
 
     StatusManager._loading[src] = nil
 
     local status = StatusManager.cache[src]
     if status then
-        StatusManager.save(src, status, license)  -- ← save ici
+        StatusManager.save(src, status, license)
         StatusManager.cache[src] = nil
     end
 end)
@@ -273,7 +273,6 @@ exports("AddStat", function(src, stat, value)
     local s = StatusManager.cache[src]
     if not s then return end
 
-    -- Flush immédiat vers le client
     if GetPlayerEndpoint(src) then
         TriggerClientEvent("union:status:updateAll", src, {
             hunger = s.hunger,
@@ -283,7 +282,6 @@ exports("AddStat", function(src, stat, value)
         s._pendingSend = false
     end
 
-    -- Save immédiate en base après chaque item consommé
     local player  = PlayerManager.get(src)
     local license = player and player.license
     StatusManager.save(src, s, license)

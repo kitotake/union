@@ -1,9 +1,23 @@
 -- server/modules/player/manager.lua
--- FIX PM1 : snapshot complet (health, armor, position) sans accès async à player.currentCharacter.
+-- FIX PM1 : snapshot complet (health, armor, position) sans accès async.
 -- FIX PM2 : commentaire clarifié sur la single-thread FiveM.
 -- FIX PM3 : Auth.Webhooks.playerLeft appelée seulement si player existe.
--- FIX PM4 : char.model → char.ped_model (colonne réelle). gender supprimé (inexistant).
--- FIX PM5 : position transmise à OfflinePed sous forme de string JSON (pas vector3).
+-- FIX PM4 : char.model → char.ped_model. gender supprimé.
+-- FIX PM5 : position transmise à OfflinePed sous forme de string JSON.
+-- FIX CRIT-5 : Race condition playerDropped supprimée.
+--   Avant : manager.lua et status/manager.lua avaient chacun un AddEventHandler
+--   ("playerDropped") indépendant. L'ordre d'exécution n'était pas garanti.
+--   Si manager.lua retirait le joueur en premier, StatusManager ne trouvait
+--   plus la licence et abandonnait la sauvegarde des statuts silencieusement.
+--
+--   Solution : manager.lua déclenche d'abord un event local "union:player:dropping"
+--   (AVANT PlayerManager.remove). Tous les modules qui ont besoin du joueur
+--   (StatusManager, etc.) écoutent cet event — ils sont certains que le joueur
+--   existe encore. Ensuite manager.lua fait PlayerManager.remove().
+--
+-- FIX CRIT-2 (complémentaire) : isSpawned est mis à true dans handler.lua
+--   (union:spawn:confirm) et NON dans un AddEventHandler séparé ici,
+--   pour éviter toute ambiguïté sur l'ordre des handlers.
 
 PlayerManager         = {}
 PlayerManager.logger  = Logger:child("PLAYER:MANAGER")
@@ -93,20 +107,11 @@ RegisterNetEvent("union:player:joined", function()
     end)
 end)
 
-AddEventHandler("union:player:spawned", function(src, character)
-    if not src or not character then return end
-    local player = PlayerManager.get(src)
-    if player then
-        player.isSpawned = true
-        PlayerManager.logger:debug(("Joueur spawné src=%d"):format(src))
-    end
-end)
-
 -- ──────────────────────────────────────────────────────────────────────────
 -- Joueur quitte
--- FIX PM1 : snapshot COMPLET avant tout async
--- FIX PM4 : ped_model utilisé (pas model), gender absent de la table
--- FIX PM5 : position en JSON string pour OfflinePed.create
+-- FIX CRIT-5 : on déclenche union:player:dropping AVANT PlayerManager.remove.
+-- Tous les modules qui dépendent de PlayerManager.get(src) (StatusManager,
+-- OfflinePed, etc.) doivent écouter union:player:dropping, pas playerDropped.
 -- ──────────────────────────────────────────────────────────────────────────
 
 AddEventHandler("playerDropped", function(reason)
@@ -119,7 +124,12 @@ AddEventHandler("playerDropped", function(reason)
     Auth.Webhooks.playerLeft(src, reason)
     PlayerManager.logger:info("Joueur " .. player.name .. " déconnecté : " .. tostring(reason))
 
-    -- FIX PM1 : snapshot COMPLET de toutes les données nécessaires dans le thread
+    -- FIX CRIT-5 : notifier TOUS les modules AVANT de supprimer le joueur.
+    -- À ce moment player est encore dans PlayerManager — les handlers peuvent
+    -- appeler PlayerManager.get(src) et trouver le joueur.
+    TriggerEvent("union:player:dropping", src, player, reason)
+
+    -- FIX PM1 : snapshot COMPLET de toutes les données nécessaires
     local saveData = nil
     if player.currentCharacter and player.isSpawned then
         local char    = player.currentCharacter
@@ -147,14 +157,12 @@ AddEventHandler("playerDropped", function(reason)
         }
     end
 
-    -- OfflinePed AVANT remove
-    -- FIX PM4 : utiliser ped_model (colonne réelle), pas model ni gender
+    -- OfflinePed AVANT remove — FIX PM4 : ped_model, FIX PM5 : JSON string
     if player.currentCharacter and OfflinePed then
         local char    = player.currentCharacter
         local posData = char.position
 
         if posData then
-            -- FIX PM5 : convertir en string JSON si nécessaire
             local posStr
             if type(posData) == "string" then
                 posStr = posData
@@ -171,7 +179,6 @@ AddEventHandler("playerDropped", function(reason)
                 OfflinePed.create({
                     currentCharacter = {
                         unique_id = char.unique_id,
-                        -- FIX PM4 : ped_model est la colonne réelle
                         ped_model = char.ped_model or "mp_m_freemode_01",
                         position  = posStr,
                     },
@@ -181,7 +188,10 @@ AddEventHandler("playerDropped", function(reason)
         end
     end
 
-    -- FIX PM1 : thread async utilise uniquement le snapshot
+    -- remove APRÈS les traitements synchrones et le TriggerEvent dropping
+    PlayerManager.remove(src)
+
+    -- Sauvegarde async APRÈS remove (snapshot déjà pris)
     if saveData then
         CreateThread(function()
             if not saveData.posJson then
@@ -207,9 +217,6 @@ AddEventHandler("playerDropped", function(reason)
             end)
         end)
     end
-
-    -- remove APRÈS OfflinePed et lancement de la sauvegarde
-    PlayerManager.remove(src)
 end)
 
 return PlayerManager
