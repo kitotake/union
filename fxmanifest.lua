@@ -54,6 +54,8 @@ client_scripts {
     'client/modules/character/create.lua',
     'client/modules/character/select.lua',
     'client/modules/character/characterManager.lua',
+    'client/modules/character/appearance.lua',
+
 
     -- ⑥ Player
     'client/modules/player/status/status_client.lua',
@@ -198,9 +200,17 @@ server_exports {
     'SetStat',
     'AddStat',
 
-    -- Character                  ← ajouter ici
+-- server_exports
+'GetPlayerAppearance',
+'SetPlayerAppearance',
+'UpgradePlayerAppearance',
+'ReloadPlayerAppearance',
+    
+-- Character                  ← ajouter ici
     'GiveCharacter',
 }
+
+
 
 -- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 -- EXPORTS CLIENT
@@ -215,4 +225,8 @@ client_exports {
     'SetStat',
     'AddStat',
     'AddPlayerStat',
+    -- client_exports
+'RequestAppearance',
+'UpdateAppearance',
+'UpgradeAppearance',
 }

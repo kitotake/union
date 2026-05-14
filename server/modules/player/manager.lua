@@ -1,23 +1,11 @@
 -- server/modules/player/manager.lua
--- FIX PM1 : snapshot complet (health, armor, position) sans accès async.
--- FIX PM2 : commentaire clarifié sur la single-thread FiveM.
--- FIX PM3 : Auth.Webhooks.playerLeft appelée seulement si player existe.
--- FIX PM4 : char.model → char.ped_model. gender supprimé.
--- FIX PM5 : position transmise à OfflinePed sous forme de string JSON.
--- FIX CRIT-5 : Race condition playerDropped supprimée.
---   Avant : manager.lua et status/manager.lua avaient chacun un AddEventHandler
---   ("playerDropped") indépendant. L'ordre d'exécution n'était pas garanti.
---   Si manager.lua retirait le joueur en premier, StatusManager ne trouvait
---   plus la licence et abandonnait la sauvegarde des statuts silencieusement.
---
---   Solution : manager.lua déclenche d'abord un event local "union:player:dropping"
---   (AVANT PlayerManager.remove). Tous les modules qui ont besoin du joueur
---   (StatusManager, etc.) écoutent cet event — ils sont certains que le joueur
---   existe encore. Ensuite manager.lua fait PlayerManager.remove().
---
--- FIX CRIT-2 (complémentaire) : isSpawned est mis à true dans handler.lua
---   (union:spawn:confirm) et NON dans un AddEventHandler séparé ici,
---   pour éviter toute ambiguïté sur l'ordre des handlers.
+-- FIX PM1  : snapshot complet (health, armor, position, is_dead) sans accès async.
+-- FIX PM3  : Auth.Webhooks.playerLeft appelée seulement si player existe.
+-- FIX PM4  : char.ped_model (colonne réelle).
+-- FIX PM5  : position transmise à OfflinePed sous forme JSON string.
+-- FIX CRIT-5 : union:player:dropping déclenché AVANT PlayerManager.remove.
+-- FIX HP   : is_dead inclus dans le snapshot et la sauvegarde à la déconnexion.
+-- FIX WARN-4 : si joueur déjà existant (restart resource), rechargement sans doublon.
 
 PlayerManager         = {}
 PlayerManager.logger  = Logger:child("PLAYER:MANAGER")
@@ -30,7 +18,7 @@ function PlayerManager.create(source)
     end
 
     if not PlayerClass then
-        PlayerManager.logger:error("PlayerClass est nil — vérifier l'ordre de chargement fxmanifest")
+        PlayerManager.logger:error("PlayerClass nil — vérifier l'ordre fxmanifest")
         return nil
     end
 
@@ -82,11 +70,26 @@ function PlayerManager.getStats()
 end
 
 -- ──────────────────────────────────────────────────────────────────────────
--- Joueur rejoint
+-- Joueur rejoint (ou restart resource)
 -- ──────────────────────────────────────────────────────────────────────────
 
 RegisterNetEvent("union:player:joined", function()
     local src = source
+
+    -- FIX WARN-4 : restart resource → joueur déjà présent → rechargement
+    local existing = PlayerManager.get(src)
+    if existing then
+        PlayerManager.logger:warn(("Joueur %d déjà présent — rechargement données"):format(src))
+        existing.isSpawned = false  -- force le re-spawn
+        existing:loadFromDatabase(function(success)
+            if success then
+                TriggerClientEvent("union:player:loaded", src)
+            else
+                DropPlayer(src, "Échec rechargement données après restart")
+            end
+        end)
+        return
+    end
 
     local player = PlayerManager.create(src)
     if not player then
@@ -109,9 +112,7 @@ end)
 
 -- ──────────────────────────────────────────────────────────────────────────
 -- Joueur quitte
--- FIX CRIT-5 : on déclenche union:player:dropping AVANT PlayerManager.remove.
--- Tous les modules qui dépendent de PlayerManager.get(src) (StatusManager,
--- OfflinePed, etc.) doivent écouter union:player:dropping, pas playerDropped.
+-- FIX CRIT-5 : union:player:dropping AVANT PlayerManager.remove
 -- ──────────────────────────────────────────────────────────────────────────
 
 AddEventHandler("playerDropped", function(reason)
@@ -120,16 +121,14 @@ AddEventHandler("playerDropped", function(reason)
 
     if not player then return end
 
-    -- FIX PM3 : webhook ici, player confirmé non-nil
+    -- FIX PM3 : webhook seulement si player confirmé non-nil
     Auth.Webhooks.playerLeft(src, reason)
     PlayerManager.logger:info("Joueur " .. player.name .. " déconnecté : " .. tostring(reason))
 
-    -- FIX CRIT-5 : notifier TOUS les modules AVANT de supprimer le joueur.
-    -- À ce moment player est encore dans PlayerManager — les handlers peuvent
-    -- appeler PlayerManager.get(src) et trouver le joueur.
+    -- FIX CRIT-5 : notifier TOUS les modules AVANT de supprimer le joueur
     TriggerEvent("union:player:dropping", src, player, reason)
 
-    -- FIX PM1 : snapshot COMPLET de toutes les données nécessaires
+    -- FIX PM1 + FIX HP : snapshot COMPLET incluant is_dead
     local saveData = nil
     if player.currentCharacter and player.isSpawned then
         local char    = player.currentCharacter
@@ -150,18 +149,18 @@ AddEventHandler("playerDropped", function(reason)
 
         saveData = {
             unique_id = char.unique_id,
-            health    = char.health or 200,
-            armor     = char.armor  or 0,
+            health    = char.health  or 200,
+            armor     = char.armor   or 0,
+            is_dead   = char.is_dead or 0,
             posJson   = posJson,
             name      = player.name,
         }
     end
 
-    -- OfflinePed AVANT remove — FIX PM4 : ped_model, FIX PM5 : JSON string
+    -- OfflinePed AVANT remove — FIX PM4 + PM5
     if player.currentCharacter and OfflinePed then
         local char    = player.currentCharacter
         local posData = char.position
-
         if posData then
             local posStr
             if type(posData) == "string" then
@@ -174,7 +173,6 @@ AddEventHandler("playerDropped", function(reason)
                     heading = char.heading or 0.0,
                 })
             end
-
             if posStr then
                 OfflinePed.create({
                     currentCharacter = {
@@ -188,7 +186,6 @@ AddEventHandler("playerDropped", function(reason)
         end
     end
 
-    -- remove APRÈS les traitements synchrones et le TriggerEvent dropping
     PlayerManager.remove(src)
 
     -- Sauvegarde async APRÈS remove (snapshot déjà pris)
@@ -200,19 +197,25 @@ AddEventHandler("playerDropped", function(reason)
             end
 
             exports.oxmysql:execute([[
-                UPDATE characters SET
-                    position = ?, health = ?, armor = ?, last_played = NOW()
+                UPDATE characters
+                SET position = ?, health = ?, armor = ?, is_dead = ?, last_played = NOW()
                 WHERE unique_id = ?
             ]], {
                 saveData.posJson,
                 saveData.health,
                 saveData.armor,
+                saveData.is_dead,
                 saveData.unique_id,
             }, function(result)
                 if result then
-                    PlayerManager.logger:info("Personnage sauvegardé à la déco pour " .. saveData.name)
+                    PlayerManager.logger:info(("Sauvegarde déco OK: %s | HP=%d Armor=%d Dead=%d"):format(
+                        saveData.name,
+                        saveData.health,
+                        saveData.armor,
+                        saveData.is_dead
+                    ))
                 else
-                    PlayerManager.logger:error("Échec sauvegarde personnage pour " .. saveData.name)
+                    PlayerManager.logger:error("Échec sauvegarde déco pour " .. saveData.name)
                 end
             end)
         end)
