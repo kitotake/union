@@ -46,6 +46,7 @@ Constants = {
         PLAYER_SPAWNED = "union:player:spawned",
         CHARACTER_CREATED = "union:character:created",
         CHARACTER_SELECTED = "union:character:selected",
+        CHARACTER_RELOADED = "union:character:reloaded",
         
         -- Server
         PLAYER_JOINED = "union:player:joined",

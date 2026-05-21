@@ -72,3 +72,14 @@ RegisterNetEvent("union:character:selected", function(success, character)
         Notifications.send(_t("character.select_failed"), "error")
     end
 end)
+
+RegisterNetEvent("union:character:reload", function(success)
+   print ("Character reload event received - success: " .. tostring(success))
+    if success then
+        logger:info("Character data reloaded successfully")
+        Notifications.send(_t("character.reload_success"), "success")
+    else
+        logger:error("Failed to reload character data")
+        Notifications.send(_t("character.reload_failed"), "error")
+    end
+end)

@@ -21,8 +21,8 @@ StatusConfig = {
 
     -- ── Décroissance par tick ─────────────────────────────────────────────
     decay = {
-        hunger = 0.8,   -- augmente un peu pour un sentiment plus réaliste
-        thirst = 1.2,
+        hunger = 0.15,   -- augmente un peu pour un sentiment plus réaliste
+        thirst = 0.25,
     },
 
     -- ── Stress ────────────────────────────────────────────────────────────
@@ -45,7 +45,7 @@ StatusConfig = {
     },
 
     -- ── Sauvegarde ────────────────────────────────────────────────────────
-    saveInterval = 300000,   -- 5 minutes
+    saveInterval = 30000, -- 30 secondes
 }
 
 return StatusConfig

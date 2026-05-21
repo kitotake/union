@@ -56,4 +56,27 @@ RegisterNetEvent("union:character:selected", function(character)
     Auth.Characters.sendCharacterSelected(src, character)
 end)
 
+
+RegisterNetEvent("union:character:reload", function(character)
+    local src = source
+
+    if not character then
+        Auth.Characters.logger:error("Character reload failed (nil)")
+        print("[union:character:reload] No character data provided for source: " .. tostring(src))
+        return
+    end
+
+    print("[union:character:reload] Reloading character data...")
+    print("[union:character:reload] Character data reloaded for source: " .. tostring(src))
+    print("[union:character:reload] Character name: " .. (character.firstname or "N/A") .. " " .. (character.lastname or "N/A"))
+    print("[union:character:reload] Character unique_id: " .. (character.unique_id or "N/A"))
+    print("[union:character:reload] Character identifiers: " .. json.encode(Auth.Identifier.get(src)))
+
+    Auth.Characters.sendCharacterSelected(src, character)
+end)
+
+
+
+
+
 return Auth.Characters

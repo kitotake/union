@@ -268,6 +268,17 @@ RegisterNetEvent("union:character:select", function(characterId)
     end)
 end)
 
+RegisterNetEvent("union:character:reload", function()
+    local src    = source
+    local player = getPlayer(src)
+    if not player then return end
+
+    -- Recharger les personnages depuis la DB pour ce joueur
+    player:loadCharacters(function()
+        TriggerClientEvent("union:character:reload", src, true)
+    end)
+end)
+
 RegisterNetEvent("union:character:delete", function(characterId)
     local src    = source
     local player = getPlayer(src)
