@@ -99,14 +99,17 @@ RegisterNUICallback("closeCharacterSelection", function(_, cb)
     cb({ ok = false, reason = "Vous devez sélectionner un personnage." })
 end)
 
--- FIX #2 : au démarrage, on signale que le client est prêt.
--- Le serveur a un handler no-op pour characters:playerReady.
--- Le vrai routing de spawn passe par union:spawn:requestInitial.
 AddEventHandler("onClientResourceStart", function(resourceName)
     if resourceName ~= GetCurrentResourceName() then return end
+
     Wait(2000)
-    Logger:info("[charManager] Client prêt, envoi characters:playerReady")
-    TriggerServerEvent("characters:playerReady")
-    -- Relancer le flow complet comme au premier chargement
-    TriggerServerEvent("union:player:joined")
+    Logger:info("[charManager] Restart resource détecté — reset état client")
+
+    -- Juste reset l'état, handler.lua gère tout le reste
+    Client.isReady          = false
+    Client.currentCharacter = nil
+    nuiOpen                 = false
+    SetNuiFocus(false, false)
+
+    Logger:info("[charManager] Reset terminé — handler.lua prend le relais")
 end)

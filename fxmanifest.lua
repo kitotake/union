@@ -36,7 +36,7 @@ client_scripts {
     -- ② Entry point (déclare Client = {})
     'client/main.lua',
 
-    -- ③ Bridges clients (chargés AVANT les modules qui les utilisent)
+    -- ③ Bridges clients
     'bridge/client/kt_character.lua',
     'bridge/client/kt_hud.lua',
     'bridge/client/kt_target.lua',
@@ -45,9 +45,8 @@ client_scripts {
     'bridge/client/kt_rotation.lua',
     'bridge/client/k_menu.lua',
 
-    -- ④ Spawn (utilise Bridge.Character)
+    -- ④ Spawn main (déclare Spawn = {}, pas de thread)
     'client/modules/spawn/main.lua',
-    'client/modules/spawn/handler.lua',
 
     -- ⑤ Character
     'client/modules/character/main.lua',
@@ -55,7 +54,6 @@ client_scripts {
     'client/modules/character/select.lua',
     'client/modules/character/characterManager.lua',
     'client/modules/character/appearance.lua',
-
 
     -- ⑥ Player
     'client/modules/player/status/status_client.lua',
@@ -75,8 +73,11 @@ client_scripts {
 
     -- ⑨ Bridge exports
     'client/modules/bridge/exports.lua',
-}
 
+    -- ⑩ Spawn handler EN DERNIER — contient le CreateThread principal
+    --    Tous les modules dont il dépend sont garantis chargés
+    'client/modules/spawn/handler.lua',
+}
 -- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 -- SERVER
 -- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

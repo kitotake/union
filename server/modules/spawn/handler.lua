@@ -227,25 +227,10 @@ function SpawnHandler.applyCharacter(player, characterData)
     return true
 end
 
--- Gestion du restart resource côté serveur
+-- REMPLACER le AddEventHandler("onResourceStart") dans handler.lua par :
 AddEventHandler("onResourceStart", function(resource)
     if resource ~= GetCurrentResourceName() then return end
-
-    for _, playerId in ipairs(GetPlayers()) do
-        local src = tonumber(playerId)
-        if src and not PlayerManager.get(src) then
-            local player = PlayerManager.create(src)
-            if player then
-                player:loadFromDatabase(function(success)
-                    if success then
-                        TriggerClientEvent("union:player:loaded", src)
-                    else
-                        DropPlayer(src, "Échec rechargement données après restart")
-                    end
-                end)
-            end
-        end
-    end
+    Logger:info("[SPAWN] Resource restart — les clients vont envoyer union:player:joined")
 end)
 
 return SpawnHandler

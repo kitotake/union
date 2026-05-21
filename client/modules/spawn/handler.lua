@@ -1,8 +1,4 @@
 -- client/modules/spawn/handler.lua
--- FIX : le thread de démarrage écoute maintenant union:player:loaded
---       (envoyé par le serveur après PlayerManager.loadFromDatabase)
---       au lieu d'envoyer union:player:joined puis attendre.
---       Cela évite la race condition entre characters:playerReady et requestInitial.
 
 Spawn.Handler = {}
 
@@ -17,29 +13,30 @@ function Spawn.Handler.setDefaultClothes(ped)
     for i = 0, 7  do ClearPedProp(ped, i) end
 end
 
--- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- THREAD D'INITIALISATION AU DÉMARRAGE
--- FIX : on attend union:player:loaded AVANT d'appeler Spawn.initialize().
---       union:player:loaded est envoyé par manager.lua après le chargement BDD.
---       characters:playerReady n'est plus utilisé pour le routing du spawn.
--- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- Au niveau global du script — obligatoire pour FiveM
+RegisterNetEvent("union:player:loaded")
+
 CreateThread(function()
     local playerId = PlayerId()
 
-    -- ── 1. Attendre que le joueur soit actif sur le réseau ────────────
+    -- ── 1. Attendre réseau actif ──────────────────────────────────────
     while not NetworkIsPlayerActive(playerId) do Wait(0) end
 
-    -- ── 2. Écran noir immédiat ────────────────────────────────────────
+    -- ── 2. Attendre que tous les modules soient chargés ───────────────
+    -- Evite que le spawn démarre avant client/main.lua et charManager
+    Wait(1000)
+
+    -- ── 3. Écran noir immédiat ────────────────────────────────────────
     DoScreenFadeOut(0)
 
     local ped = PlayerPedId()
 
-    -- ── 3. Freeze pendant le chargement ──────────────────────────────
+    -- ── 4. Freeze ─────────────────────────────────────────────────────
     SetEntityVisible(ped, false, false)
     FreezeEntityPosition(ped, true)
     SetPlayerInvincible(playerId, true)
 
-    -- ── 4. Modèle temporaire ──────────────────────────────────────────
+    -- ── 5. Modèle temporaire ──────────────────────────────────────────
     local tempModel = Config.spawn.temporaryModel
     local tempHash  = GetHashKey(tempModel)
     RequestModel(tempHash)
@@ -57,7 +54,7 @@ CreateThread(function()
     SetModelAsNoLongerNeeded(tempHash)
     ped = PlayerPedId()
 
-    -- ── 5. Collisions ─────────────────────────────────────────────────
+    -- ── 6. Collisions ─────────────────────────────────────────────────
     local coords = GetEntityCoords(ped)
     if math.abs(coords.x) < 1.0 and math.abs(coords.y) < 1.0 then
         coords = Config.spawn.defaultPosition
@@ -69,42 +66,43 @@ CreateThread(function()
         Wait(0)
     end
 
-    -- ── 6. Arrêter le loading screen ──────────────────────────────────
+    -- ── 7. Loading screen ─────────────────────────────────────────────
     ShutdownLoadingScreen()
     ShutdownLoadingScreenNui()
 
-    -- ── 7. Notifier le serveur ────────────────────────────────────────
-    TriggerServerEvent("union:player:joined")
-
-    -- ── 8. Attendre union:player:loaded (envoyé par manager.lua) ──────
+    -- ── 8. Enregistrer le handler AVANT d'envoyer joined ─────────────
     local loaded = false
     local loadHandler = AddEventHandler("union:player:loaded", function()
         loaded = true
     end)
 
+    -- ── 9. Notifier le serveur ────────────────────────────────────────
+    TriggerServerEvent("union:player:joined")
+
+    -- ── 10. Attendre union:player:loaded ─────────────────────────────
     local timeout = GetGameTimer() + 12000
     while not loaded and GetGameTimer() < timeout do Wait(100) end
     RemoveEventHandler(loadHandler)
 
     if not loaded then
         Logger:error("union:player:loaded timeout — forcing spawn anyway")
+    else
+        Logger:info("union:player:loaded reçu — DB chargée")
     end
 
-    -- ── 9. Réactiver le joueur ────────────────────────────────────────
+    -- ── 11. Réactiver ─────────────────────────────────────────────────
     SetEntityVisible(ped, true, false)
     FreezeEntityPosition(ped, false)
     SetPlayerInvincible(playerId, false)
 
-    -- ── 10. Fade in ───────────────────────────────────────────────────
+    -- ── 12. Fade in ───────────────────────────────────────────────────
     DoScreenFadeIn(250)
 
-    -- ── 11. Marquer le client prêt ────────────────────────────────────
+    -- ── 13. Marquer prêt ──────────────────────────────────────────────
     Client.isReady = true
     TriggerEvent("union:client:ready")
     Logger:info("Client ready — requesting initial spawn")
 
-    -- ── 12. Demander le spawn initial ────────────────────────────────
-    -- FIX : Spawn.initialize() envoie union:spawn:requestInitial à handler.lua
-    --       C'est le SEUL chemin de spawn. characters:playerReady n'intervient plus.
+    -- ── 14. Spawn initial ─────────────────────────────────────────────
     Spawn.initialize()
 end)

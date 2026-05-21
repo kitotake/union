@@ -161,7 +161,7 @@ end
 RegisterNetEvent("union:player:apparence", function()
     local src    = source
     local player = PlayerManager.get(src)
-    if not player or not player.currentCharacter then return end
+    if not player or not player.currentCharacter then return end  -- ← peut être nil au restart
     doApplyAppearance(src, player.currentCharacter)
 end)
 

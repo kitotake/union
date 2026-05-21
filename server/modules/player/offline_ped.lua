@@ -149,4 +149,53 @@ AddEventHandler("union:player:dropping", function(src)
     end
 end)
 
+AddEventHandler("onResourceStart", function(resource)
+    if resource ~= GetCurrentResourceName() then return end
+
+    -- Attendre 10s que les joueurs se reconnectent via union:player:joined
+    Wait(10000)
+
+    Database.fetch([[
+        SELECT c.unique_id, c.ped_model, c.position
+        FROM characters c
+        INNER JOIN user_character uc ON uc.unique_id = c.unique_id
+        WHERE c.position IS NOT NULL
+        AND c.last_played > DATE_SUB(NOW(), INTERVAL 24 HOUR)
+    ]], {}, function(rows)
+        if not rows or #rows == 0 then return end
+
+        local rebuilt = 0
+        for _, row in ipairs(rows) do
+            -- À ce stade les joueurs sont reconnectés donc PlayerManager est peuplé
+            local isOnline = false
+            for _, player in pairs(PlayerManager.getAll()) do
+                if player.currentCharacter and
+                   player.currentCharacter.unique_id == row.unique_id then
+                    isOnline = true
+                    break
+                end
+            end
+
+            if not isOnline and row.position then
+                local ok, pos = pcall(json.decode, row.position)
+                if ok and pos and pos.x then
+                    OfflinePed.store[row.unique_id] = {
+                        uniqueId   = row.unique_id,
+                        model      = row.ped_model or "mp_m_freemode_01",
+                        x          = pos.x,
+                        y          = pos.y,
+                        z          = pos.z,
+                        heading    = pos.heading or 0.0,
+                        recipients = {},
+                    }
+                    rebuilt = rebuilt + 1
+                end
+            end
+        end
+
+        OfflinePed.logger:info(("Store offline reconstruit : %d ped(s)"):format(rebuilt))
+    end)
+end)
+
+
 return OfflinePed

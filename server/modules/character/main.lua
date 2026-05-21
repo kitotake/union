@@ -268,14 +268,31 @@ RegisterNetEvent("union:character:select", function(characterId)
     end)
 end)
 
+-- REMPLACER l'ancien handler union:character:reload par :
 RegisterNetEvent("union:character:reload", function()
     local src    = source
     local player = getPlayer(src)
     if not player then return end
 
-    -- Recharger les personnages depuis la DB pour ce joueur
+    -- Si pas de personnage actif, rien à reloader
+    local activeCharId = player.currentCharacter and player.currentCharacter.id
+    if not activeCharId then
+        TriggerClientEvent("union:character:reload", src, false)
+        return
+    end
+
+    -- Recharger les persos depuis la DB
     player:loadCharacters(function()
-        TriggerClientEvent("union:character:reload", src, true)
+        -- Re-sélectionner le même personnage → re-trigger spawn:apply
+        Character.select(player, activeCharId, function(success, character)
+            if success then
+                Character.logger:info("Character reload OK pour " .. player.name)
+                TriggerClientEvent("union:character:reload", src, true)
+            else
+                Character.logger:error("Character reload failed pour " .. player.name)
+                TriggerClientEvent("union:character:reload", src, false)
+            end
+        end)
     end)
 end)
 

@@ -136,8 +136,8 @@ end)
 
 RegisterNetEvent("union:player:spawned", function(character)
     if not character or not character.unique_id then return end
-    -- FIX #5 : deletePed contient déjà le guard DoesEntityExist
-    -- spawn/main.lua (étape 6) peut avoir déjà supprimé ce ped — pas de crash
+    -- Guard : si déjà supprimé par spawn/main.lua étape 6, on skip silencieusement
+    if not OfflinePeds.list or not OfflinePeds.list[character.unique_id] then return end
     deletePed(character.unique_id)
     OfflinePeds.logger:info("Ped offline nettoyé après spawn uid=" .. character.unique_id)
 end)

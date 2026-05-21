@@ -76,20 +76,25 @@ end
 RegisterNetEvent("union:player:joined", function()
     local src = source
 
-    -- FIX WARN-4 : restart resource → joueur déjà présent → rechargement
-    local existing = PlayerManager.get(src)
-    if existing then
-        PlayerManager.logger:warn(("Joueur %d déjà présent — rechargement données"):format(src))
-        existing.isSpawned = false  -- force le re-spawn
-        existing:loadFromDatabase(function(success)
-            if success then
-                TriggerClientEvent("union:player:loaded", src)
-            else
-                DropPlayer(src, "Échec rechargement données après restart")
-            end
-        end)
-        return
-    end
+    -- REMPLACER le bloc "existing" dans RegisterNetEvent("union:player:joined") par :
+local existing = PlayerManager.get(src)
+if existing then
+    PlayerManager.logger:warn(("Joueur %d déjà présent — rechargement après restart"):format(src))
+
+    -- Remettre à zéro l'état spawn AVANT loadFromDatabase
+    -- pour éviter que le status tick ou persistence accèdent à un état incohérent
+    existing.isSpawned        = false
+    existing.currentCharacter = nil  -- sera rechargé par loadCharacters
+
+    existing:loadFromDatabase(function(success)
+        if success then
+            TriggerClientEvent("union:player:loaded", src)
+        else
+            DropPlayer(src, "Échec rechargement données après restart")
+        end
+    end)
+    return
+end
 
     local player = PlayerManager.create(src)
     if not player then

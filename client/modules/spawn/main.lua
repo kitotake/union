@@ -1,7 +1,4 @@
 -- client/modules/spawn/main.lua
--- FIX SP-1 : charData.model → charData.ped_model (colonne réelle côté serveur).
--- FIX SP-2 : position reçue comme table { x, y, z } (plus vector3 brut).
--- FIX SP-3 : guard spawnInProgress par session.
 
 Spawn = {}
 local logger = Logger:child("SPAWN")
@@ -23,7 +20,7 @@ function Spawn.respawn(model)
     TriggerServerEvent("union:spawn:requestRespawn", model)
 end
 
-local spawnInProgress    = false
+local spawnInProgress     = false
 local currentSpawnSession = 0
 
 local function resetSpawnGuard()
@@ -38,7 +35,7 @@ local function startSpawnTimeout(seconds, sessionId)
             if currentSpawnSession ~= sessionId then return end
         end
         if currentSpawnSession == sessionId and spawnInProgress then
-            logger:warn(("Spawn timeout (%ds) — réinitialisation du guard [session %d]"):format(seconds, sessionId))
+            logger:warn(("Spawn timeout (%ds) — reset guard [session %d]"):format(seconds, sessionId))
             resetSpawnGuard()
         end
     end)
@@ -60,7 +57,6 @@ RegisterNetEvent("union:spawn:apply", function(characterData)
     local mySession = currentSpawnSession
     startSpawnTimeout(30, mySession)
 
-    -- FIX SP-1 : le serveur envoie ped_model (colonne réelle), plus "model"
     local model = characterData.ped_model
     if not model or model == "" then
         logger:error("ped_model manquant dans characterData")
@@ -107,7 +103,6 @@ RegisterNetEvent("union:spawn:apply", function(characterData)
         FreezeEntityPosition(ped, true)
 
         -- ── 3. DATA ───────────────────────────────────
-        -- FIX SP-2 : position peut être une table { x, y, z } ou vector3
         local rawPos  = characterData.position or Config.spawn.defaultPosition
         local posX    = rawPos.x or Config.spawn.defaultPosition.x
         local posY    = rawPos.y or Config.spawn.defaultPosition.y
@@ -116,10 +111,32 @@ RegisterNetEvent("union:spawn:apply", function(characterData)
         local health  = characterData.health  or Config.character.defaultHealth
         local armor   = characterData.armor   or 0
 
-        -- ── 4. APPARENCE via Bridge ───────────────────
-        Bridge.Character.applyAppearance(characterData)
+        -- ── 4. APPARENCE ──────────────────────────────
+        -- Attendre kt_character max 5s
+        local waited = 0
+        while not Bridge.Character:isAvailable() and waited < 20 do
+            Wait(250)
+            waited = waited + 1
+        end
 
-        -- ── 5. COLLISION + RESPAWN ───────────────────
+        if Bridge.Character:isAvailable() then
+            local ok, err = pcall(function()
+                exports["kt_character"]:ApplyPreview(characterData)
+            end)
+            if ok then
+                logger:info("Skin du personnage chargé avec succès")
+            else
+                logger:warn("ApplyPreview échoué : " .. tostring(err) .. " — fallback")
+                Bridge.Character._applyFallback(characterData)
+            end
+       else
+            logger:warn("kt_character non disponible — chargement skin depuis DB")
+            Bridge.Character._applyFallback(characterData)
+            -- L'apparence sera demandée après confirm (étape 10)
+            logger:info("Skin du personnage chargé avec succès (via DB)")
+        end
+
+        -- ── 5. COLLISION + RESPAWN ────────────────────
         RequestCollisionAtCoord(posX, posY, posZ)
         local collTimeout = GetGameTimer() + 6000
         while not HasCollisionLoadedAroundEntity(ped) and GetGameTimer() < collTimeout do
@@ -144,7 +161,7 @@ RegisterNetEvent("union:spawn:apply", function(characterData)
             end
         end
 
-        -- ── 7. FINAL FIX VISIBILITY ───────────────────
+        -- ── 7. VISIBILITÉ FINALE ──────────────────────
         SetEntityVisible(ped, true, false)
         SetEntityAlpha(ped, 255, false)
         FreezeEntityPosition(ped, false)
@@ -155,10 +172,20 @@ RegisterNetEvent("union:spawn:apply", function(characterData)
         logger:info("Personnage spawné avec succès")
         resetSpawnGuard()
 
-        -- ── 9. SERVER CONFIRM ─────────────────────────
+       -- ── 9. CONFIRM SERVEUR ────────────────────────
         TriggerServerEvent("union:spawn:confirm", characterData.unique_id)
 
-        -- ── 10. EVENT LOCAL (HUD, Target, etc.) ───────
+        -- ── 10. APPARENCE depuis DB si kt_character indispo ───────────
+        -- On attend que le serveur ait confirmé le spawn (currentCharacter set)
+        -- avant de demander l'apparence depuis la DB
+        if not Bridge.Character:isAvailable() then
+            SetTimeout(1000, function()
+                TriggerServerEvent("union:player:apparence")
+                logger:info("Apparence DB demandée au serveur")
+            end)
+        end
+
+        -- ── 11. EVENTS LOCAUX ─────────────────────────
         TriggerEvent("union:player:spawned", characterData)
     end)
 end)

@@ -46,6 +46,10 @@ local function startSpawnTimeout(seconds, sessionId)
     end)
 end
 
+-- // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- // server/modules/spawn/main.lua
+-- // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
 RegisterNetEvent("union:spawn:apply", function(characterData)
     if not characterData then
         logger:error("characterData nil")
