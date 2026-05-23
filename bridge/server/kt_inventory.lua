@@ -1,6 +1,10 @@
 -- bridge/server/kt_inventory.lua
 -- Bridge serveur vers kt_inventory
--- Remplace inventory/main.lua (supprime le guard fragile)
+-- FIX DOUBLE-LOAD : guard _loadedPlayers par uid pour éviter le double chargement
+--   de l'inventaire après "ensure union". Après un restart, le client renvoie
+--   union:player:joined → spawned → union:player:spawned est déclenché 2x.
+--   kt_inventory lève alors : "attempted to load active player's inventory a secondary time".
+--   Le guard bloque le second appel à kt_inventory:playerSpawned pour le même uid.
 
 Bridge.Inventory = Bridge.create("kt_inventory")
 Bridge.register("kt_inventory", Bridge.Inventory)
@@ -24,6 +28,15 @@ local function inv(fnName, ...)
     end
     return result
 end
+
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- GUARD ANTI-DOUBLE CHARGEMENT INVENTAIRE
+-- Clé : unique_id → timestamp de dernier chargement
+-- Fenêtre : 8s (plus large que la fenêtre spawn 5s pour absorber le délai réseau)
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+local _inventoryLoaded   = {}
+local INVENTORY_DEDUP_MS = 8000
 
 -- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 -- API PUBLIQUE
@@ -68,8 +81,7 @@ function Bridge.Inventory.getMoney(src)
 end
 
 -- ── Chargement inventaire au spawn ─────────
--- Remplace le AddEventHandler("union:player:spawned") de inventory/main.lua
--- Plus de guard _loadedPlayers : on laisse kt_inventory gérer les doublons lui-même
+-- FIX DOUBLE-LOAD : guard _inventoryLoaded par unique_id
 AddEventHandler("union:player:spawned", function(src, character)
     if not src or not character then return end
 
@@ -78,18 +90,33 @@ AddEventHandler("union:player:spawned", function(src, character)
         return
     end
 
-    -- Notifie kt_inventory que le joueur est prêt
-    -- kt_inventory doit écouter cet event ou un export setPlayerInventory
+    local uid = character.unique_id
+    if not uid then return end
+
+    -- Guard anti-double chargement
+    local now  = GetGameTimer()
+    local last = _inventoryLoaded[uid]
+    if last and (now - last) < INVENTORY_DEDUP_MS then
+        print(("^3[BRIDGE:kt_inventory] Double chargement inventaire ignoré uid=%s (delta=%dms)^7"):format(
+            uid, now - last
+        ))
+        return
+    end
+    _inventoryLoaded[uid] = now
+
     local ok, err = pcall(function()
-        -- Adapter selon l'API réelle de kt_inventory
-        -- Option A : export direct
-        -- exports["kt_inventory"]:SetPlayerInventory(src, character.unique_id)
-        -- Option B : event
-        TriggerEvent("kt_inventory:playerSpawned", src, character.unique_id)
+        TriggerEvent("kt_inventory:playerSpawned", src, uid)
     end)
 
     if not ok then
         print(("^1[BRIDGE:kt_inventory] Erreur spawn inventaire : %s^7"):format(tostring(err)))
+    end
+end)
+
+-- Nettoyage du guard à la déconnexion
+AddEventHandler("union:player:dropping", function(src, player)
+    if player and player.currentCharacter and player.currentCharacter.unique_id then
+        _inventoryLoaded[player.currentCharacter.unique_id] = nil
     end
 end)
 

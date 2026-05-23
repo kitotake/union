@@ -3,21 +3,24 @@
 -- FIX SH-2 : position transmise comme table JSON-sérialisable (pas vector3 brut).
 -- FIX SH-3 : guard anti-double confirm avec nettoyage fiable.
 -- FIX SH-4 : SpawnHandler._confirming nettoyé immédiatement à playerDropped.
--- FIX SH-5 : auto-spawn 1 personnage — flag _selectSent pour garantir un seul envoi.
 -- FIX CRIT-1 : union:player:spawned déclenché UNE SEULE FOIS via TriggerEvent local.
---              Suppression du TriggerClientEvent("union:player:spawned") en doublon.
---              Les modules serveur (StatusManager, OfflinePed, manager.lua) utilisent
---              AddEventHandler("union:player:spawned") qui reçoit l'event local.
--- FIX CRIT-2 : player.isSpawned mis à true DANS le handler de confirm (même fichier),
---              pas dans manager.lua via un AddEventHandler séparé dont l'ordre n'est
---              pas garanti.
--- FIX CRIT-3 : _confirming nettoyé immédiatement après traitement, pas avec SetTimeout.
+-- FIX CRIT-2 : player.isSpawned mis à true DANS le handler de confirm.
+-- FIX CRIT-3 : _confirming nettoyé immédiatement après traitement.
+-- FIX DOUBLE-SPAWN : guard _spawnedGuard par (src+uid) dans une fenêtre de 5s.
+--   Après "ensure union", le client renvoie union:player:joined → loadFromDatabase
+--   → auto-spawn → confirm : un doublon peut arriver dans la même fenêtre courte.
+--   Le guard détecte ce doublon et l'absorbe silencieusement, évitant le double
+--   déclenchement de union:player:spawned (et donc le double chargement d'inventaire
+--   et la double application d'apparence).
 
 SpawnHandler        = {}
 SpawnHandler.logger = Logger:child("SPAWN:HANDLER")
 
-SpawnHandler._sessions   = {}
-SpawnHandler._confirming = {}
+SpawnHandler._sessions      = {}
+SpawnHandler._confirming    = {}
+SpawnHandler._spawnedGuard  = {}   -- FIX DOUBLE-SPAWN : guardKey → timestamp
+
+local SPAWN_DEDUP_WINDOW = 5000   -- ms : deux spawns du même uid dans cette fenêtre = doublon
 
 local function isConnected(src)
     return GetPlayerEndpoint(src) ~= nil
@@ -64,7 +67,6 @@ RegisterNetEvent("union:spawn:requestInitial", function()
 
         Character.select(player, chars[1].id, function(success)
             if success then
-                -- Character.select() a déjà appelé TriggerClientEvent("union:spawn:apply")
                 spawnSent = true
                 SpawnHandler.logger:info(("Auto-spawn OK pour %s"):format(player.name))
             else
@@ -96,8 +98,6 @@ end)
 
 -- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 -- HELPER : construit charData compatible client
--- FIX SH-1 : ped_model au lieu de model
--- FIX SH-2 : position sous forme de table { x, y, z }
 -- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 function SpawnHandler._buildCharData(char)
     local defPos = Config.spawn.defaultPosition
@@ -153,33 +153,44 @@ end)
 
 -- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 -- CONFIRMATION CLIENT → SPAWN RÉUSSI
--- FIX CRIT-1 : UN SEUL TriggerEvent local pour union:player:spawned.
---              Plus de TriggerClientEvent en doublon.
---              Tous les modules serveur (StatusManager, OfflinePed, manager.lua)
---              reçoivent cet event via AddEventHandler — l'ordre entre handlers
---              d'un même event local est déterministe dans FiveM (ordre d'enregistrement).
--- FIX CRIT-2 : player.isSpawned = true positionné ICI, avant le TriggerEvent,
---              pour que les handlers qui lisent isSpawned (ex: status tick) le
---              voient déjà à true quand ils reçoivent l'event.
--- FIX CRIT-3 : _confirming nettoyé immédiatement (pas de SetTimeout).
---              Si un double-confirm arrive dans la même frame, il est bloqué
---              par le guard en haut. Après nettoyage, une nouvelle session peut
---              s'enregistrer sans délai artificiel.
+-- FIX DOUBLE-SPAWN : guard _spawnedGuard par (src+uid) dans une fenêtre de 5s.
+--
+-- Séquence problématique après "ensure union" :
+--   1. Client envoie union:player:joined
+--   2. Serveur : loadFromDatabase → auto-spawn → union:spawn:apply
+--   3. Client : union:spawn:apply → spawn → union:spawn:confirm  ← 1er confirm OK
+--   4. BUT : l'ancien CreateThread de handler.lua côté client (du chargement
+--      précédent) peut aussi terminer et envoyer un 2e union:player:joined,
+--      ce qui relance toute la chaîne → 2e union:spawn:confirm → double spawned.
+--   Le guard _spawnedGuard bloque le 2e confirm si uid identique dans les 5s.
 -- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 RegisterNetEvent("union:spawn:confirm", function(uniqueId)
     local src    = source
     local player = PlayerManager.get(src)
     if not player then return end
 
-    -- FIX CRIT-3 : guard synchrone — nettoyé immédiatement après
+    -- Guard anti-double confirm (même tick)
     if SpawnHandler._confirming[src] then
         SpawnHandler.logger:warn("Double confirm ignoré pour src=" .. src)
         return
     end
     SpawnHandler._confirming[src] = true
 
-    -- FIX CRIT-2 : isSpawned AVANT le TriggerEvent pour que les handlers
-    -- qui testent player.isSpawned le voient à true dès réception.
+    -- FIX DOUBLE-SPAWN : guard temporel par (src + unique_id)
+    local guardKey  = tostring(src) .. "_" .. tostring(uniqueId)
+    local lastSpawn = SpawnHandler._spawnedGuard[guardKey]
+    local now       = GetGameTimer()
+
+    if lastSpawn and (now - lastSpawn) < SPAWN_DEDUP_WINDOW then
+        SpawnHandler.logger:warn(("Double spawn bloqué src=%d uid=%s (delta=%dms)"):format(
+            src, tostring(uniqueId), now - lastSpawn
+        ))
+        SpawnHandler._confirming[src] = nil
+        return
+    end
+    SpawnHandler._spawnedGuard[guardKey] = now
+
+    -- FIX CRIT-2 : isSpawned AVANT le TriggerEvent
     player.isSpawned = true
     SpawnHandler.logger:info("Spawn confirmé pour " .. player.name)
 
@@ -190,17 +201,13 @@ RegisterNetEvent("union:spawn:confirm", function(uniqueId)
         end
     end
 
-    -- FIX CRIT-1 : UN SEUL point de déclenchement de union:player:spawned.
-    -- TriggerEvent (local, serveur) → reçu par tous les AddEventHandler serveur.
-    -- Le client reçoit ses propres données via union:spawn:apply (déjà envoyé).
-    -- On notifie quand même le client pour que les scripts qui écoutent
-    -- union:player:spawned côté client (HUD, target, etc.) puissent réagir.
+    -- FIX CRIT-1 : UN SEUL point de déclenchement de union:player:spawned
     TriggerEvent("union:player:spawned", src, player.currentCharacter)
     if isConnected(src) then
         TriggerClientEvent("union:player:spawned", src, player.currentCharacter)
     end
 
-    -- FIX CRIT-3 : nettoyage immédiat — pas de SetTimeout(3000)
+    -- FIX CRIT-3 : nettoyage immédiat
     SpawnHandler._confirming[src] = nil
 end)
 
@@ -210,11 +217,24 @@ RegisterNetEvent("union:spawn:error", function(errorType)
     SpawnHandler._confirming[src] = nil
 end)
 
--- FIX SH-4 : nettoyage immédiat à la déconnexion
+-- Nettoyage complet à la déconnexion
 AddEventHandler("playerDropped", function()
-    local src = source
+    local src    = source
+    local srcStr = tostring(src)
+
     SpawnHandler._confirming[src] = nil
     SpawnHandler._sessions[src]   = nil
+
+    -- Purge du guard pour ce src
+    local toDelete = {}
+    for key in pairs(SpawnHandler._spawnedGuard) do
+        if key:sub(1, #srcStr + 1) == srcStr .. "_" then
+            toDelete[#toDelete + 1] = key
+        end
+    end
+    for _, key in ipairs(toDelete) do
+        SpawnHandler._spawnedGuard[key] = nil
+    end
 end)
 
 -- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -227,7 +247,6 @@ function SpawnHandler.applyCharacter(player, characterData)
     return true
 end
 
--- REMPLACER le AddEventHandler("onResourceStart") dans handler.lua par :
 AddEventHandler("onResourceStart", function(resource)
     if resource ~= GetCurrentResourceName() then return end
     Logger:info("[SPAWN] Resource restart — les clients vont envoyer union:player:joined")

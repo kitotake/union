@@ -1,42 +1,18 @@
 -- server/modules/character/appearance.lua
--- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- FIX DOUBLE-APPLY : guard _applyGuard par (src+uid) dans une fenêtre de 5s.
+--   Après "ensure union", union:player:spawned est reçu deux fois par ce module
+--   (via AddEventHandler). Le guard détecte le doublon et bloque le second envoi
+--   de kt_appearance:apply, supprimant le double chargement visible dans les logs :
+--     [INFO|CHARACTER:APPEARANCE] Apparence chargée src=1 uid=chr_xxx  ← 1er OK
+--     [INFO|CHARACTER:APPEARANCE] Apparence chargée src=1 uid=chr_xxx  ← 2e bloqué
 --
--- TROIS EVENTS PUBLICS
---
--- 1) union:player:apparence
---    → Charge l'apparence depuis la BDD et l'applique au client.
---    → Déclenché automatiquement à union:player:spawned.
---    → Appelable manuellement :
---        Serveur : TriggerEvent("union:player:apparence", src)
---        Client  : TriggerServerEvent("union:player:apparence")
---
--- 2) union:player:UpdateApparence
---    → Déclenché quand kt_character sauvegarde une modification.
---    → Sauvegarde les nouvelles données en BDD puis réapplique.
---    → Appelable aussi depuis n'importe quelle ressource externe :
---        Serveur : TriggerEvent("union:player:UpdateApparence", src, data)
---        Client  : TriggerServerEvent("union:player:UpdateApparence", data)
---
--- 3) union:player:apparenceUpgrade
---    → Mise à jour PARTIELLE — seuls les champs fournis sont modifiés.
---    → Les autres données existantes sont conservées en BDD.
---    → Champs supportés : hair, headBlend, headOverlays, faceFeatures,
---                         components, props, tattoos, ped_model
---        Serveur : TriggerEvent("union:player:apparenceUpgrade", src, partial)
---        Client  : TriggerServerEvent("union:player:apparenceUpgrade", partial)
---
--- EXPORTS SERVEUR
---    exports["union"]:GetPlayerAppearance(src, callback)    → table apparence (async)
---    exports["union"]:SetPlayerAppearance(src, data)        → update complet
---    exports["union"]:UpgradePlayerAppearance(src, partial) → update partiel
---    exports["union"]:ReloadPlayerAppearance(src)           → recharge depuis BDD
---
--- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- Les autres correctifs (EVENT 1/2/3, exports) sont inchangés.
 
 CharacterAppearance        = {}
 CharacterAppearance.logger = Logger:child("CHARACTER:APPEARANCE")
 
--- ─── Helpers internes ─────────────────────────────────────────────────────
+CharacterAppearance._applyGuard = {}   -- FIX DOUBLE-APPLY
+local APPLY_DEDUP_WINDOW        = 5000 -- ms
 
 local function isConnected(src)
     return GetPlayerEndpoint(src) ~= nil
@@ -53,7 +29,6 @@ local function normalizePed(model)
     return "mp_m_freemode_01", "m"
 end
 
--- Construit la table d'apparence complète depuis une ligne character_appearances
 local function buildFromRow(row, charData)
     if not row then return nil end
 
@@ -107,7 +82,7 @@ function CharacterAppearance.save(uniqueId, skinData, faceFeatures, tattoos, cal
     end)
 end
 
--- ─── BDD : save partiel (merge avec les données existantes) ───────────────
+-- ─── BDD : save partiel ───────────────────────────────────────────────────
 
 local SKIN_FIELDS = { "hair", "headBlend", "headOverlays", "components", "props", "ped_model", "gender" }
 
@@ -134,12 +109,24 @@ end
 
 -- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 -- EVENT 1 : union:player:apparence
--- Charge depuis la BDD et applique. Déclenché automatiquement au spawn.
 -- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 local function doApplyAppearance(src, character)
     if not src or not character or not character.unique_id then return end
     if not isConnected(src) then return end
+
+    -- FIX DOUBLE-APPLY : guard temporel par (src + uid)
+    local guardKey = tostring(src) .. "_" .. tostring(character.unique_id)
+    local now      = GetGameTimer()
+    local last     = CharacterAppearance._applyGuard[guardKey]
+
+    if last and (now - last) < APPLY_DEDUP_WINDOW then
+        CharacterAppearance.logger:warn(("Double apply bloqué src=%d uid=%s (delta=%dms)"):format(
+            src, character.unique_id, now - last
+        ))
+        return
+    end
+    CharacterAppearance._applyGuard[guardKey] = now
 
     CharacterAppearance.load(character.unique_id, function(row)
         if not row then
@@ -161,18 +148,18 @@ end
 RegisterNetEvent("union:player:apparence", function()
     local src    = source
     local player = PlayerManager.get(src)
-    if not player or not player.currentCharacter then return end  -- ← peut être nil au restart
+    if not player or not player.currentCharacter then return end
     doApplyAppearance(src, player.currentCharacter)
 end)
 
--- Handler local (depuis le serveur via TriggerEvent)
+-- Handler local (depuis le serveur)
 AddEventHandler("union:player:apparence", function(src)
     local player = PlayerManager.get(src)
     if not player or not player.currentCharacter then return end
     doApplyAppearance(src, player.currentCharacter)
 end)
 
--- Déclenchement automatique au spawn
+-- Déclenchement automatique au spawn (avec délai pour laisser le client se stabiliser)
 AddEventHandler("union:player:spawned", function(src, character)
     if not src or not character then return end
     SetTimeout(600, function()
@@ -184,8 +171,6 @@ end)
 
 -- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 -- EVENT 2 : union:player:UpdateApparence
--- Déclenché quand kt_character sauvegarde une modif.
--- Sauvegarde en BDD puis réapplique immédiatement.
 -- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 local function doUpdateAppearance(src, data)
@@ -201,7 +186,6 @@ local function doUpdateAppearance(src, data)
     local uniqueId           = player.currentCharacter.unique_id
     local pedModel, gender   = normalizePed(data.ped_model or player.currentCharacter.ped_model)
 
-    -- Sauvegarde complète en BDD
     CharacterAppearance.save(
         uniqueId,
         {
@@ -220,7 +204,6 @@ local function doUpdateAppearance(src, data)
         end
     )
 
-    -- Application immédiate au client
     local appearanceData = {
         ped_model    = pedModel,
         gender       = gender,
@@ -239,19 +222,13 @@ local function doUpdateAppearance(src, data)
     CharacterAppearance.logger:info(("UpdateApparence appliqué src=%d uid=%s"):format(src, uniqueId))
 end
 
--- Handler réseau (depuis le client / kt_character)
 RegisterNetEvent("union:player:UpdateApparence", function(data)
     doUpdateAppearance(source, data)
 end)
 
--- Handler local (depuis le serveur / autre ressource)
 AddEventHandler("union:player:UpdateApparence", function(src, data)
     doUpdateAppearance(src, data)
 end)
-
--- ─── Intégration kt_character ─────────────────────────────────────────────
--- Intercepte la sauvegarde de kt_character pour synchroniser Union.
--- kt_character:updateAppearance → on sauvegarde aussi côté Union.
 
 RegisterNetEvent("kt_character:updateAppearance", function(data)
     local src    = source
@@ -259,21 +236,16 @@ RegisterNetEvent("kt_character:updateAppearance", function(data)
     if not player or not player.currentCharacter then return end
     if not data or not data.unique_id then return end
 
-    -- Vérification de propriété
     if player.currentCharacter.unique_id ~= data.unique_id then
         CharacterAppearance.logger:warn(("UpdateApparence refusé: uid mismatch src=%d"):format(src))
         return
     end
 
-    -- On laisse kt_character faire sa sauvegarde normale,
-    -- puis on synchronise les données dans la table character_appearances d'Union
     doUpdateAppearance(src, data)
 end)
 
 -- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 -- EVENT 3 : union:player:apparenceUpgrade
--- Mise à jour PARTIELLE. Seuls les champs fournis sont modifiés.
--- Les autres données existantes sont conservées en BDD.
 -- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 local function doUpgradeAppearance(src, partial)
@@ -288,12 +260,10 @@ local function doUpgradeAppearance(src, partial)
 
     local uniqueId = player.currentCharacter.unique_id
 
-    -- Sauvegarde partielle en BDD (merge avec données existantes)
     CharacterAppearance.savePartial(uniqueId, partial, function()
         CharacterAppearance.logger:info("apparenceUpgrade BDD OK uid=" .. uniqueId)
     end)
 
-    -- Application partielle au client
     TriggerClientEvent("union:player:apparenceUpgrade:apply", src, partial)
     TriggerEvent("union:player:apparenceUpgrade:applied", src, uniqueId, partial)
 
@@ -304,14 +274,28 @@ local function doUpgradeAppearance(src, partial)
     ))
 end
 
--- Handler réseau (depuis le client)
 RegisterNetEvent("union:player:apparenceUpgrade", function(partial)
     doUpgradeAppearance(source, partial)
 end)
 
--- Handler local (depuis le serveur / autre ressource)
 AddEventHandler("union:player:apparenceUpgrade", function(src, partial)
     doUpgradeAppearance(src, partial)
+end)
+
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- NETTOYAGE DU GUARD À LA DÉCONNEXION
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+AddEventHandler("union:player:dropping", function(src)
+    local srcStr  = tostring(src)
+    local toDelete = {}
+    for key in pairs(CharacterAppearance._applyGuard) do
+        if key:sub(1, #srcStr + 1) == srcStr .. "_" then
+            toDelete[#toDelete + 1] = key
+        end
+    end
+    for _, key in ipairs(toDelete) do
+        CharacterAppearance._applyGuard[key] = nil
+    end
 end)
 
 -- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
