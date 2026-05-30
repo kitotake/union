@@ -1,8 +1,4 @@
 -- server/components/utils.lua
--- FIX #1  : generateUniqueId ajoute un vrai check DB pour éviter les doublons
--- FIX #2  : notifyPlayer utilise "src" pour éviter la confusion avec source global
--- FIX #3  : Utils.hasPermission passe explicitement la source
-
 ServerUtils = {}
 
 function ServerUtils.getPlayerIP(source)
@@ -27,33 +23,25 @@ function ServerUtils.getIdentifier(source, idType)
     end
 end
 
--- FIX #1 : vérification DB pour garantir l'unicité de l'UID généré
 function ServerUtils.generateUniqueId(length)
     length = length or 12
     local chars = "0123456789"
     local maxAttempts = 10
-
     for attempt = 1, maxAttempts do
         local id = "chr_"
         for _ = 1, length do
             local rand = math.random(#chars)
             id = id .. chars:sub(rand, rand)
         end
-
-        -- Vérifier que l'UID n'existe pas déjà en base
         local exists = MySQL.scalar.await(
             "SELECT COUNT(*) FROM characters WHERE unique_id = ?",
             { id }
         )
-
         if not exists or exists == 0 then
             return id
         end
-
         Logger:warn(("generateUniqueId: collision sur %s (tentative %d/%d)"):format(id, attempt, maxAttempts))
     end
-
-    -- Dernier recours : ajouter timestamp pour unicité garantie
     local fallback = "chr_" .. tostring(os.time()) .. tostring(math.random(1000, 9999))
     Logger:error("generateUniqueId: fallback utilisé — " .. fallback)
     return fallback
@@ -75,16 +63,13 @@ function ServerUtils.validateDate(date)
     return true
 end
 
--- FIX #2 : paramètre renommé "src" partout pour éviter le shadowing de la globale FiveM
 function ServerUtils.notifyPlayer(src, message, type, duration)
     type     = type     or "info"
     duration = duration or 3000
-
     if not src or src == 0 then
         print(("[NOTIFY→console][%s] %s"):format(type:upper(), tostring(message)))
         return
     end
-
     TriggerClientEvent("union:notify", src, message, type, duration)
 end
 

@@ -1,22 +1,14 @@
 -- client/modules/components/position.lua
--- FIX SAVE-1 : sauvegarde immédiate si position change de plus de MOVE_THRESHOLD unités.
--- FIX SAVE-2 : sauvegarde périodique toutes les SAVE_INTERVAL ms (health/armor/is_dead).
--- FIX SAVE-3 : health et armor envoyés avec chaque save.
-
 Position = {}
 
 local lastSavedPos     = nil
 local lastSavedHeading = nil
 local positionSaved    = false
 
--- ─── Seuils ───────────────────────────────────────────────────────────────
-local MOVE_THRESHOLD = 2.0      -- unités GTA — au-delà on save immédiatement
-local SAVE_INTERVAL  = 30000    -- ms — save périodique (statique / health / armor)
-local MIN_INTERVAL   = 3000     -- ms — anti-spam entre deux saves
-
-local lastSaveTime = 0
-
--- ─── Helpers ──────────────────────────────────────────────────────────────
+local MOVE_THRESHOLD = 2.0
+local SAVE_INTERVAL  = 30000
+local MIN_INTERVAL   = 3000
+local lastSaveTime   = 0
 
 local function getCharacterStats()
     local ped    = PlayerPedId()
@@ -35,8 +27,6 @@ local function canSave()
     return (GetGameTimer() - lastSaveTime) >= MIN_INTERVAL
 end
 
--- ─── Save principal ────────────────────────────────────────────────────────
-
 function Position.save(force)
     local ped = PlayerPedId()
     if not DoesEntityExist(ped) then return end
@@ -44,36 +34,26 @@ function Position.save(force)
         Logger:debug("Position skip: joueur mort")
         return
     end
-
     local coords  = GetEntityCoords(ped)
     local heading = GetEntityHeading(ped)
-
     if math.abs(coords.x) < 1.0 and math.abs(coords.y) < 1.0 then
         Logger:debug("Position skip: coords nulles (spawn en cours)")
         return
     end
-
-    -- Si pas forcé et anti-spam pas respecté → on skip
     if not force and not canSave() then return end
-
     local health, armor, isDead = getCharacterStats()
-
-    -- Mise à jour du currentCharacter local
     if Client.currentCharacter then
         Client.currentCharacter.health  = health
         Client.currentCharacter.armor   = armor
         Client.currentCharacter.is_dead = isDead and 1 or 0
     end
-
     lastSavedPos     = coords
     lastSavedHeading = heading
     positionSaved    = true
     lastSaveTime     = GetGameTimer()
-
     Logger:debug(("Position save → x=%.1f y=%.1f z=%.1f HP=%d Armor=%d"):format(
         coords.x, coords.y, coords.z, health, armor
     ))
-
     TriggerServerEvent("union:position:save", coords, heading, health, armor, isDead)
 end
 
@@ -97,32 +77,22 @@ RegisterNetEvent("union:position:loaded", function(position, heading)
     Position.setLast(position, heading)
 end)
 
--- ─── Thread principal : détection de mouvement + save périodique ──────────
-
 CreateThread(function()
     while true do
-        Wait(1000) -- vérification chaque seconde
-
+        Wait(1000)
         if not Client.isReady or not Client.currentCharacter then goto continue end
-
         local ped = PlayerPedId()
         if not DoesEntityExist(ped) or IsEntityDead(ped) then goto continue end
-
         local coords = GetEntityCoords(ped)
-
-        -- Save immédiate si déplacement important
         if hasMoved(coords) and canSave() then
             Logger:debug("Mouvement détecté → save immédiate")
             Position.save(true)
             goto continue
         end
-
-        -- Save périodique toutes les SAVE_INTERVAL ms (pour HP/armor/is_dead)
         if (GetGameTimer() - lastSaveTime) >= SAVE_INTERVAL then
             Logger:debug("Save périodique (30s)")
             Position.save(true)
         end
-
         ::continue::
     end
 end)

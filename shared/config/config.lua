@@ -20,11 +20,10 @@ Config = {
 
     character = {
         defaultHealth = 200,
-        defaultArmor = 100,
+        defaultArmor = 0,           -- FIX: était 100, corrigé à 0 (cohérent avec tout le code)
         maxCharactersPerPlayer = 5,
     },
 
-    -- ✅ Table vide : les vraies URLs sont dans shared/config/webhooks.lua
     webhooks = {},
 
     locale = "en",
@@ -33,13 +32,11 @@ Config = {
         defaultGroup = "user",
         autoAssign = true,
     },
-    -- Whitelist
+
     whitelist = {
-        enabled = false, -- passer à true pour activer
+        enabled = false,
     },
 }
-
-
 
 if IsDuplicityVersion() then
     exports("GetConfig", function() return Config end)

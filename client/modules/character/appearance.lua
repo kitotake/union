@@ -1,23 +1,9 @@
 -- client/modules/character/appearance.lua
--- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- Gère les events d'apparence côté client :
---
---  union:player:apparenceUpgrade:apply  → applique un changement PARTIEL sur
---                                         le ped actuel sans toucher au reste.
---
--- union:player:apparence et union:player:UpdateApparence utilisent
--- kt_appearance:apply (géré par kt_character/client/appearance.lua).
--- Ce fichier ne duplique pas ce handler.
--- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
 ClientAppearance        = {}
 ClientAppearance.logger = Logger:child("CLIENT:APPEARANCE")
 
--- ─── Helpers ──────────────────────────────────────────────────────────────
-
 local VALID_COMPONENTS = { 1, 3, 4, 5, 6, 7, 8, 9, 10, 11 }
 local VALID_PROPS      = { 0, 1, 2, 6, 7 }
-
 local OVERLAY_COLOR_TYPES = {
     [0]=0,[1]=1,[2]=1,[3]=0,[4]=2,[5]=2,
     [6]=0,[7]=0,[8]=2,[9]=0,[10]=1,[11]=0,[12]=0,
@@ -101,20 +87,16 @@ local function applyTattoos(ped, tattoos, clearFirst)
     end
 end
 
--- ─── Changement de modèle (ped_model) ─────────────────────────────────────
-
 local function applyPedModel(model, callback)
     local pedModel = model
     if pedModel ~= "mp_m_freemode_01" and pedModel ~= "mp_f_freemode_01" then
         pedModel = "mp_m_freemode_01"
     end
-
     local hash = GetHashKey(pedModel)
     if GetEntityModel(PlayerPedId()) == hash then
         if callback then callback(PlayerPedId()) end
         return
     end
-
     RequestModel(hash)
     local t = GetGameTimer()
     CreateThread(function()
@@ -133,21 +115,12 @@ local function applyPedModel(model, callback)
     end)
 end
 
--- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- EVENT : union:player:apparenceUpgrade:apply
--- Applique seulement les champs reçus sur le ped actuel.
--- Aucun champ absent n'est réinitialisé.
--- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
 RegisterNetEvent("union:player:apparenceUpgrade:apply", function(partial)
     if not partial then return end
-
     local fields = {}
     for k in pairs(partial) do table.insert(fields, k) end
     ClientAppearance.logger:info("apparenceUpgrade:apply → [" .. table.concat(fields, ", ") .. "]")
-
     Citizen.CreateThread(function()
-        -- Si changement de modèle, on l'applique d'abord
         if partial.ped_model then
             applyPedModel(partial.ped_model, function(ped)
                 ClientAppearance._applyPartialFields(ped, partial)
@@ -161,34 +134,24 @@ end)
 
 function ClientAppearance._applyPartialFields(ped, partial)
     if not ped or ped == 0 then return end
-
-    if partial.hair         then applyHair(ped, partial.hair)                         end
-    if partial.headBlend    then applyHeadBlend(ped, partial.headBlend)               end
-    if partial.headOverlays then applyHeadOverlays(ped, partial.headOverlays)         end
-    if partial.faceFeatures then applyFaceFeatures(ped, partial.faceFeatures)         end
-    if partial.components   then applyComponents(ped, partial.components)             end
-    if partial.props        then applyProps(ped, partial.props)                       end
-    if partial.tattoos      then applyTattoos(ped, partial.tattoos, true)             end
-
+    if partial.hair         then applyHair(ped, partial.hair)                 end
+    if partial.headBlend    then applyHeadBlend(ped, partial.headBlend)       end
+    if partial.headOverlays then applyHeadOverlays(ped, partial.headOverlays) end
+    if partial.faceFeatures then applyFaceFeatures(ped, partial.faceFeatures) end
+    if partial.components   then applyComponents(ped, partial.components)     end
+    if partial.props        then applyProps(ped, partial.props)               end
+    if partial.tattoos      then applyTattoos(ped, partial.tattoos, true)     end
     ClientAppearance.logger:info("apparenceUpgrade appliqué sur le ped")
 end
 
--- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- EXPORTS CLIENT
--- Utilisables depuis d'autres ressources clientes
--- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
--- Demande au serveur de charger et appliquer l'apparence depuis la BDD
 exports("RequestAppearance", function()
     TriggerServerEvent("union:player:apparence")
 end)
 
--- Envoie un update complet d'apparence au serveur
 exports("UpdateAppearance", function(data)
     TriggerServerEvent("union:player:UpdateApparence", data)
 end)
 
--- Envoie un upgrade partiel au serveur
 exports("UpgradeAppearance", function(partial)
     TriggerServerEvent("union:player:apparenceUpgrade", partial)
 end)

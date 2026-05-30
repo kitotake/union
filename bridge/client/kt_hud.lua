@@ -1,18 +1,10 @@
 -- bridge/client/kt_hud.lua
--- FIX #1 : hudThread reset propre si kt_hud redémarre.
--- FIX #2 : sendToNui vérifie que le thread ne tourne pas déjà avant d'en créer un.
--- FIX #3 : Bridge.Hud._startThread garde en mémoire si le thread est actif.
-
 Bridge.Hud = Bridge.create("kt_hud")
 Bridge.register("kt_hud", Bridge.Hud)
 
 local hudActive = false
 local hudThread = false
 local UPDATE_DELAY = 500
-
--- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- NORMALISATION
--- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 local function normalizeHealth(raw)
     if raw <= 100 then return 0 end
@@ -27,20 +19,14 @@ local function normalizeStamina(raw)
     return math.floor((1.0 - raw) * 100)
 end
 
--- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- COLLECTE
--- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
 local function collectHudData()
     local ped     = PlayerPedId()
     local vehicle = GetVehiclePedIsIn(ped, false)
     local inVeh   = DoesEntityExist(vehicle) and vehicle ~= 0
-
-    local ps     = LocalPlayer.state
-    local hunger = ps.hunger or 100
-    local thirst = ps.thirst or 100
-    local stress = ps.stress or 0
-
+    local ps      = LocalPlayer.state
+    local hunger  = ps.hunger or 100
+    local thirst  = ps.thirst or 100
+    local stress  = ps.stress or 0
     return {
         health  = normalizeHealth(GetEntityHealth(ped)),
         armor   = normalizeArmor(GetPedArmour(ped)),
@@ -49,7 +35,6 @@ local function collectHudData()
         thirst  = math.max(0, math.min(100, math.floor(thirst))),
         stress  = math.max(0, math.min(100, math.floor(stress))),
         isDead  = IsEntityDead(ped),
-
         inVehicle    = inVeh,
         speed        = inVeh and math.floor(GetEntitySpeed(vehicle) * 3.6) or 0,
         fuel         = inVeh and math.floor(GetVehicleFuelLevel(vehicle)) or 0,
@@ -59,19 +44,13 @@ local function collectHudData()
     }
 end
 
--- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- ENVOI NUI — délégué à kt_hud via event local
--- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
 local function sendToNui(action, data)
     TriggerEvent("kt_hud:sendNui", action, data)
 end
 
 function Bridge.Hud.update(data)
     if not Bridge.Hud:isAvailable() then return end
-
     data = data or collectHudData()
-
     local ok, err = pcall(function()
         sendToNui("updateHud", {
             health  = data.health,
@@ -91,7 +70,6 @@ function Bridge.Hud.update(data)
             engineHealth = data.engineHealth,
         })
     end)
-
     if not ok then
         print(("^1[BRIDGE:kt_hud] update erreur : %s^7"):format(tostring(err)))
     end
@@ -108,18 +86,11 @@ function Bridge.Hud.hide()
     if not Bridge.Hud:isAvailable() then return end
     sendToNui("setVisible", { visible = false })
     hudActive = false
-    -- FIX #1 : hudThread sera remis à false par le thread lui-même
 end
-
--- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- THREAD
--- FIX #2 : vérification stricte avant création
--- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 function Bridge.Hud._startThread()
     if hudThread then return end
     hudThread = true
-
     CreateThread(function()
         while hudActive do
             if Client.currentCharacter then
@@ -127,14 +98,9 @@ function Bridge.Hud._startThread()
             end
             Wait(UPDATE_DELAY)
         end
-        -- FIX #1 : reset propre quand le thread se termine
         hudThread = false
     end)
 end
-
--- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- EVENTS UNION
--- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 RegisterNetEvent("union:player:spawned", function()
     Wait(500)
@@ -160,10 +126,9 @@ AddEventHandler("onResourceStart", function(r)
     end
 end)
 
--- FIX #1 : reset complet si kt_hud s'arrête
 AddEventHandler("onResourceStop", function(r)
     if r == "kt_hud" then
         hudActive = false
-        hudThread = false   -- FIX #1 : le thread est mort avec la ressource
+        hudThread = false
     end
 end)

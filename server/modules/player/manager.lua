@@ -1,12 +1,4 @@
 -- server/modules/player/manager.lua
--- FIX PM1  : snapshot complet (health, armor, position, is_dead) sans accès async.
--- FIX PM3  : Auth.Webhooks.playerLeft appelée seulement si player existe.
--- FIX PM4  : char.ped_model (colonne réelle).
--- FIX PM5  : position transmise à OfflinePed sous forme JSON string.
--- FIX CRIT-5 : union:player:dropping déclenché AVANT PlayerManager.remove.
--- FIX HP   : is_dead inclus dans le snapshot et la sauvegarde à la déconnexion.
--- FIX WARN-4 : si joueur déjà existant (restart resource), rechargement sans doublon.
-
 PlayerManager         = {}
 PlayerManager.logger  = Logger:child("PLAYER:MANAGER")
 PlayerManager.players = {}
@@ -16,19 +8,21 @@ function PlayerManager.create(source)
         PlayerManager.logger:warn("Joueur " .. source .. " déjà existant")
         return PlayerManager.players[source]
     end
-
     if not PlayerClass then
         PlayerManager.logger:error("PlayerClass nil — vérifier l'ordre fxmanifest")
         return nil
     end
-
     local player = PlayerClass.new(source)
     PlayerManager.players[source] = player
     return player
 end
 
-function PlayerManager.get(source)
-    return PlayerManager.players[source]
+function PlayerManager.get(source)   return PlayerManager.players[source] end
+function PlayerManager.getAll()      return PlayerManager.players end
+function PlayerManager.count()
+    local count = 0
+    for _ in pairs(PlayerManager.players) do count = count + 1 end
+    return count
 end
 
 function PlayerManager.getByLicense(license)
@@ -38,10 +32,6 @@ function PlayerManager.getByLicense(license)
     return nil
 end
 
-function PlayerManager.getAll()
-    return PlayerManager.players
-end
-
 function PlayerManager.remove(source)
     if PlayerManager.players[source] then
         PlayerManager.logger:info("Suppression joueur : " .. (PlayerManager.players[source].name or tostring(source)))
@@ -49,52 +39,32 @@ function PlayerManager.remove(source)
     end
 end
 
-function PlayerManager.count()
-    local count = 0
-    for _ in pairs(PlayerManager.players) do count = count + 1 end
-    return count
-end
-
 function PlayerManager.getStats()
     local stats = { total = PlayerManager.count(), admins = 0, moderators = 0, users = 0 }
     for _, player in pairs(PlayerManager.players) do
-        if player:isAdmin() then
-            stats.admins = stats.admins + 1
-        elseif player:isModerator() then
-            stats.moderators = stats.moderators + 1
-        else
-            stats.users = stats.users + 1
-        end
+        if player:isAdmin() then stats.admins = stats.admins + 1
+        elseif player:isModerator() then stats.moderators = stats.moderators + 1
+        else stats.users = stats.users + 1 end
     end
     return stats
 end
 
--- ──────────────────────────────────────────────────────────────────────────
--- Joueur rejoint (ou restart resource)
--- ──────────────────────────────────────────────────────────────────────────
-
 RegisterNetEvent("union:player:joined", function()
     local src = source
-
-    -- REMPLACER le bloc "existing" dans RegisterNetEvent("union:player:joined") par :
-local existing = PlayerManager.get(src)
-if existing then
-    PlayerManager.logger:warn(("Joueur %d déjà présent — rechargement après restart"):format(src))
-
-    -- Remettre à zéro l'état spawn AVANT loadFromDatabase
-    -- pour éviter que le status tick ou persistence accèdent à un état incohérent
-    existing.isSpawned        = false
-    existing.currentCharacter = nil  -- sera rechargé par loadCharacters
-
-    existing:loadFromDatabase(function(success)
-        if success then
-            TriggerClientEvent("union:player:loaded", src)
-        else
-            DropPlayer(src, "Échec rechargement données après restart")
-        end
-    end)
-    return
-end
+    local existing = PlayerManager.get(src)
+    if existing then
+        PlayerManager.logger:warn(("Joueur %d déjà présent — rechargement après restart"):format(src))
+        existing.isSpawned        = false
+        existing.currentCharacter = nil
+        existing:loadFromDatabase(function(success)
+            if success then
+                TriggerClientEvent("union:player:loaded", src)
+            else
+                DropPlayer(src, "Échec rechargement données après restart")
+            end
+        end)
+        return
+    end
 
     local player = PlayerManager.create(src)
     if not player then
@@ -115,43 +85,29 @@ end
     end)
 end)
 
--- ──────────────────────────────────────────────────────────────────────────
--- Joueur quitte
--- FIX CRIT-5 : union:player:dropping AVANT PlayerManager.remove
--- ──────────────────────────────────────────────────────────────────────────
-
 AddEventHandler("playerDropped", function(reason)
     local src    = source
     local player = PlayerManager.get(src)
-
     if not player then return end
 
-    -- FIX PM3 : webhook seulement si player confirmé non-nil
     Auth.Webhooks.playerLeft(src, reason)
     PlayerManager.logger:info("Joueur " .. player.name .. " déconnecté : " .. tostring(reason))
 
-    -- FIX CRIT-5 : notifier TOUS les modules AVANT de supprimer le joueur
+    -- FIX CRIT-5: déclencher AVANT remove
     TriggerEvent("union:player:dropping", src, player, reason)
 
-    -- FIX PM1 + FIX HP : snapshot COMPLET incluant is_dead
+    -- Snapshot pour sauvegarde async
     local saveData = nil
     if player.currentCharacter and player.isSpawned then
         local char    = player.currentCharacter
         local posJson = nil
-
         if type(char.position) == "string" then
             posJson = char.position
         elseif type(char.position) == "table" then
             posJson = json.encode(char.position)
         elseif type(char.position) == "vector3" then
-            posJson = json.encode({
-                x       = char.position.x,
-                y       = char.position.y,
-                z       = char.position.z,
-                heading = char.heading or 0.0,
-            })
+            posJson = json.encode({ x = char.position.x, y = char.position.y, z = char.position.z, heading = char.heading or 0.0 })
         end
-
         saveData = {
             unique_id = char.unique_id,
             health    = char.health  or 200,
@@ -162,21 +118,16 @@ AddEventHandler("playerDropped", function(reason)
         }
     end
 
-    -- OfflinePed AVANT remove — FIX PM4 + PM5
+    -- OfflinePed AVANT remove
     if player.currentCharacter and OfflinePed then
         local char    = player.currentCharacter
         local posData = char.position
         if posData then
             local posStr
-            if type(posData) == "string" then
-                posStr = posData
-            elseif type(posData) == "table" then
-                posStr = json.encode(posData)
+            if type(posData) == "string" then posStr = posData
+            elseif type(posData) == "table" then posStr = json.encode(posData)
             elseif type(posData) == "vector3" then
-                posStr = json.encode({
-                    x = posData.x, y = posData.y, z = posData.z,
-                    heading = char.heading or 0.0,
-                })
+                posStr = json.encode({ x = posData.x, y = posData.y, z = posData.z, heading = char.heading or 0.0 })
             end
             if posStr then
                 OfflinePed.create({
@@ -186,38 +137,28 @@ AddEventHandler("playerDropped", function(reason)
                         position  = posStr,
                     },
                     name = player.name,
-                })
+                }, src)
             end
         end
     end
 
     PlayerManager.remove(src)
 
-    -- Sauvegarde async APRÈS remove (snapshot déjà pris)
     if saveData then
         CreateThread(function()
             if not saveData.posJson then
                 PlayerManager.logger:warn("Pas de position à sauvegarder pour " .. saveData.name)
                 return
             end
-
             exports.oxmysql:execute([[
                 UPDATE characters
                 SET position = ?, health = ?, armor = ?, is_dead = ?, last_played = NOW()
                 WHERE unique_id = ?
-            ]], {
-                saveData.posJson,
-                saveData.health,
-                saveData.armor,
-                saveData.is_dead,
-                saveData.unique_id,
-            }, function(result)
+            ]], { saveData.posJson, saveData.health, saveData.armor, saveData.is_dead, saveData.unique_id },
+            function(result)
                 if result then
                     PlayerManager.logger:info(("Sauvegarde déco OK: %s | HP=%d Armor=%d Dead=%d"):format(
-                        saveData.name,
-                        saveData.health,
-                        saveData.armor,
-                        saveData.is_dead
+                        saveData.name, saveData.health, saveData.armor, saveData.is_dead
                     ))
                 else
                     PlayerManager.logger:error("Échec sauvegarde déco pour " .. saveData.name)

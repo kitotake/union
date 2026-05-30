@@ -1,30 +1,23 @@
 -- bridge/client/kt_character.lua
-
 Bridge.Character = Bridge.create("kt_character")
 Bridge.register("kt_character", Bridge.Character)
 
--- Applique l'apparence via kt_character
 function Bridge.Character.applyAppearance(charData)
     if not charData then return false end
     if not Bridge.Character:isAvailable() then return false end
-
     local ok, err = pcall(function()
         exports["kt_character"]:ApplyPreview(charData)
     end)
-
     if not ok then
         print(("^1[BRIDGE:kt_character] ApplyPreview échoué : %s^7"):format(tostring(err)))
         return false
     end
-
     return true
 end
 
--- Fallback : modèle nu sans skin
 function Bridge.Character._applyFallback(charData)
     local model = charData and charData.ped_model or "mp_m_freemode_01"
     local hash  = GetHashKey(model)
-
     if not HasModelLoaded(hash) then
         RequestModel(hash)
         local t = GetGameTimer()
@@ -36,7 +29,6 @@ function Bridge.Character._applyFallback(charData)
             end
         end
     end
-
     SetPlayerModel(PlayerId(), hash)
     SetModelAsNoLongerNeeded(hash)
     print("^3[BRIDGE:kt_character] Fallback appliqué — modèle: " .. model .. "^7")

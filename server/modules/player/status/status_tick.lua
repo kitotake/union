@@ -1,8 +1,4 @@
 -- server/modules/player/status/status_tick.lua
--- FIX NOTE-3 : les deux boucles d'attente (StatusConfig et Server.isReady)
---   n'avaient ni timeout ni log d'erreur — elles tournaient à vide indéfiniment
---   si la config ne se chargeait jamais. Ajout d'un timeout de 60s avec log fatal.
-
 print("[STATUS] Tick loaded")
 
 local StatusManager = _G.StatusManager
@@ -17,11 +13,7 @@ local function debug(msg)
     end
 end
 
--- ─────────────────────────────────────────────
--- MAIN TICK
--- ─────────────────────────────────────────────
 CreateThread(function()
-    -- FIX NOTE-3 : timeout 60s sur l'attente de StatusConfig
     local waitedConfig = 0
     while not StatusConfig or not StatusConfig.tickInterval do
         print("^3[STATUS][TICK] En attente de StatusConfig...^0")
@@ -32,85 +24,58 @@ CreateThread(function()
             return
         end
     end
-
     print(("^2[STATUS][TICK] Démarrage — interval=%dms decay h=%.1f t=%.1f^0"):format(
-        StatusConfig.tickInterval,
-        StatusConfig.decay.hunger,
-        StatusConfig.decay.thirst
-    ))
-
+        StatusConfig.tickInterval, StatusConfig.decay.hunger, StatusConfig.decay.thirst))
     while true do
         Wait(StatusConfig.tickInterval)
-
         for src, status in pairs(StatusManager.cache) do
             if status then
                 local player = PlayerManager.get(src)
-
                 if not player or not player.currentCharacter or not player.isSpawned then
                     goto continue
                 end
-
-                local newHunger = status.hunger - (StatusConfig.decay.hunger or 0.8)
-                local newThirst = status.thirst - (StatusConfig.decay.thirst or 1.2)
-
-                StatusManager.set(src, "hunger", newHunger)
-                StatusManager.set(src, "thirst", newThirst)
-
+                StatusManager.set(src, "hunger", status.hunger - (StatusConfig.decay.hunger or 0.8))
+                StatusManager.set(src, "thirst", status.thirst - (StatusConfig.decay.thirst or 1.2))
                 if status.stress > 0 then
                     StatusManager.set(src, "stress", status.stress - (StatusConfig.stressDecay or 0.5))
                 end
-
                 if status.hunger <= 0 or status.thirst <= 0 then
                     TriggerClientEvent("union:status:applyDamage", src, StatusConfig.effects.damageAmount or 5)
                 end
-
                 if status.stress >= 90 then
-                    TriggerClientEvent("union:status:stress:max",  src)
-                    TriggerClientEvent("union:status:blur:max",    src)
-                    TriggerClientEvent("union:status:heartbeat",   src)
+                    TriggerClientEvent("union:status:stress:max", src)
+                    TriggerClientEvent("union:status:blur:max", src)
+                    TriggerClientEvent("union:status:heartbeat", src)
                 elseif status.stress >= 75 then
                     TriggerClientEvent("union:status:stress:high", src)
                     TriggerClientEvent("union:status:blur:medium", src)
                 elseif status.stress >= 50 then
-                    TriggerClientEvent("union:status:stress:low",  src)
+                    TriggerClientEvent("union:status:stress:low", src)
                 end
-
                 ::continue::
             end
         end
-
         StatusManager.flushPendingSends()
     end
 end)
 
--- ─────────────────────────────────────────────
--- SAVE LOOP
--- ─────────────────────────────────────────────
 CreateThread(function()
-    -- FIX NOTE-3 : timeout 60s sur StatusConfig ET Server.isReady
     local waitedSave = 0
     while not StatusConfig or not StatusConfig.saveInterval do
-        Wait(1000)
-        waitedSave = waitedSave + 1
+        Wait(1000); waitedSave = waitedSave + 1
         if waitedSave >= 60 then
-            print("^1[STATUS][SAVE][FATAL] StatusConfig non disponible après 60s — save loop abandonnée^0")
-            return
+            print("^1[STATUS][SAVE][FATAL] StatusConfig non disponible après 60s^0"); return
         end
     end
-
     local waitedServer = 0
     while not Server.isReady do
-        Wait(1000)
-        waitedServer = waitedServer + 1
+        Wait(1000); waitedServer = waitedServer + 1
         if waitedServer >= 60 then
-            print("^1[STATUS][SAVE][FATAL] Server.isReady jamais true après 60s — save loop abandonnée^0")
-            return
+            print("^1[STATUS][SAVE][FATAL] Server.isReady jamais true après 60s^0"); return
         end
     end
-
     while true do
         Wait(StatusConfig.saveInterval)
-
         local saved = 0
         for src, player in pairs(PlayerManager.getAll() or {}) do
             if player and player.currentCharacter and player.isSpawned then
@@ -122,9 +87,6 @@ CreateThread(function()
             end
             Wait(25)
         end
-
-        if saved > 0 then
-            StatusManager.logger:debug(("[STATUS] %d status sauvegardés"):format(saved))
-        end
+        if saved > 0 then StatusManager.logger:debug(("[STATUS] %d status sauvegardés"):format(saved)) end
     end
 end)

@@ -1,14 +1,6 @@
 -- bridge/client/kt_target.lua
--- FIX KT-1 : gender dérivé de ped_model (pas de colonne gender en DB).
--- FIX KT-2 : ped_model utilisé (colonne réelle, pas "model").
--- FIX KT-3 : position reçue comme table { x, y, z } — convertie correctement.
-
 Bridge.Target = Bridge.create("kt_target")
 Bridge.register("kt_target", Bridge.Target)
-
--- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- SYNCHRONISATION PERSONNAGE ACTIF → STATEBAG
--- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 local function syncCharacterState(charData)
     if not charData then
@@ -16,16 +8,11 @@ local function syncCharacterState(charData)
         LocalPlayer.state:set("job", nil, false)
         return
     end
-
-    -- FIX KT-2 : ped_model est la colonne réelle (pas "model")
     local model = charData.ped_model or "mp_m_freemode_01"
     if model ~= "mp_m_freemode_01" and model ~= "mp_f_freemode_01" then
         model = "mp_m_freemode_01"
     end
-
-    -- FIX KT-1 : gender dérivé de ped_model (colonne gender absente de la DB)
     local gender = (model == "mp_f_freemode_01") and "f" or "m"
-
     LocalPlayer.state:set("character", {
         unique_id = charData.unique_id,
         firstname = charData.firstname or "",
@@ -35,27 +22,20 @@ local function syncCharacterState(charData)
         job       = charData.job       or "unemployed",
         job_grade = charData.job_grade or 0,
     }, false)
-
     LocalPlayer.state:set("job", {
         name  = charData.job       or "unemployed",
         grade = charData.job_grade or 0,
     }, false)
 end
 
--- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- API PUBLIQUE — ZONES & ENTITÉS
--- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
 function Bridge.Target.addZone(name, coords, options)
     if not Bridge.Target:isAvailable() then
         print(("^3[BRIDGE:kt_target] addZone '%s' ignoré — ressource non disponible^7"):format(tostring(name)))
         return false
     end
-
     local ok, err = pcall(function()
         exports["kt_target"]:AddTargetZone(name, coords, options)
     end)
-
     if not ok then
         print(("^1[BRIDGE:kt_target] addZone erreur : %s^7"):format(tostring(err)))
         return false
@@ -65,11 +45,9 @@ end
 
 function Bridge.Target.removeZone(name)
     if not Bridge.Target:isAvailable() then return false end
-
     local ok, err = pcall(function()
         exports["kt_target"]:RemoveTargetZone(name)
     end)
-
     if not ok then
         print(("^1[BRIDGE:kt_target] removeZone erreur : %s^7"):format(tostring(err)))
         return false
@@ -79,11 +57,9 @@ end
 
 function Bridge.Target.addEntity(entities, options)
     if not Bridge.Target:isAvailable() then return false end
-
     local ok, err = pcall(function()
         exports["kt_target"]:AddTargetEntity(entities, options)
     end)
-
     if not ok then
         print(("^1[BRIDGE:kt_target] addEntity erreur : %s^7"):format(tostring(err)))
         return false
@@ -93,11 +69,9 @@ end
 
 function Bridge.Target.removeEntity(entities, labels)
     if not Bridge.Target:isAvailable() then return false end
-
     local ok, err = pcall(function()
         exports["kt_target"]:RemoveTargetEntity(entities, labels)
     end)
-
     if not ok then
         print(("^1[BRIDGE:kt_target] removeEntity erreur : %s^7"):format(tostring(err)))
         return false
@@ -107,21 +81,15 @@ end
 
 function Bridge.Target.addModel(models, options)
     if not Bridge.Target:isAvailable() then return false end
-
     local ok, err = pcall(function()
         exports["kt_target"]:AddTargetModel(models, options)
     end)
-
     if not ok then
         print(("^1[BRIDGE:kt_target] addModel erreur : %s^7"):format(tostring(err)))
         return false
     end
     return true
 end
-
--- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- LIAISON AUX EVENTS UNION
--- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 RegisterNetEvent("union:player:spawned", function(character)
     syncCharacterState(character or Client.currentCharacter)

@@ -1,37 +1,23 @@
 -- bridge/server/statebags.lua
--- FIX SB-1 : normalizePed définie localement (n'existait pas globalement).
--- FIX SB-2 : gender dérivé de ped_model (colonne absente de la table characters).
--- FIX SB-3 : position sérialisée en JSON avant set (vector3 non transmissible tel quel).
-
 StateBags = {}
 StateBags.logger = Logger:child("STATEBAGS")
 
--- FIX SB-1 : helper local — ped_model est la colonne réelle (pas "model")
 local function normalizePed(pedModel)
     local model = pedModel
     if model ~= "mp_m_freemode_01" and model ~= "mp_f_freemode_01" then
         model = "mp_m_freemode_01"
     end
-    -- FIX SB-2 : gender dérivé du ped_model (pas de colonne gender en DB)
     local gender = (model == "mp_f_freemode_01") and "f" or "m"
     return model, gender
 end
 
--- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- DONNÉES PARTAGÉES AU SPAWN
--- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
 function StateBags.setCharacter(src, charData)
     if not src or not charData then return end
-
     local model, gender = normalizePed(charData.ped_model)
-
     local ok, err = pcall(function()
         local player = Player(src)
         if not player then return end
-
         local state = player.state
-
         local character = {
             unique_id = charData.unique_id,
             firstname = charData.firstname or "",
@@ -41,49 +27,36 @@ function StateBags.setCharacter(src, charData)
             job       = charData.job or "unemployed",
             job_grade = charData.job_grade or 0,
         }
-
         state:set("character", character, true)
-
         state:set("job", {
             name  = character.job,
             grade = character.job_grade,
         }, true)
-
         state:set("unique_id", character.unique_id, false)
     end)
-
     if not ok then
         StateBags.logger:warn("setCharacter erreur src=" .. tostring(src) .. " : " .. tostring(err))
     else
         StateBags.logger:debug(("StateBag OK src=%s uid=%s"):format(
-            tostring(src),
-            tostring(charData.unique_id)
+            tostring(src), tostring(charData.unique_id)
         ))
     end
 end
 
 function StateBags.clearCharacter(src)
     if not src then return end
-
     local ok, err = pcall(function()
         local player = Player(src)
         if not player then return end
-
         local state = player.state
-
         state:set("character", nil, true)
         state:set("job", nil, true)
         state:set("unique_id", nil, false)
     end)
-
     if not ok then
         StateBags.logger:warn("clearCharacter erreur src=" .. tostring(src) .. " : " .. tostring(err))
     end
 end
-
--- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- LECTURE
--- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 function StateBags.getCharacter(src)
     if not src then return nil end
@@ -112,10 +85,6 @@ function StateBags.getUniqueId(src)
     return ok and result or nil
 end
 
--- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- LIAISON AUX EVENTS UNION
--- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
 AddEventHandler("union:player:spawned", function(src, character)
     if not src or not character then return end
     StateBags.setCharacter(src, character)
@@ -126,7 +95,6 @@ AddEventHandler("union:job:updated", function(src, job, grade)
     local ok, err = pcall(function()
         local state = Player(src).state
         state:set("job", { name = job, grade = grade }, true)
-
         local char = state.character
         if char then
             char.job       = job
@@ -143,9 +111,6 @@ AddEventHandler("playerDropped", function()
     StateBags.clearCharacter(source)
 end)
 
--- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- EXPORTS
--- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 exports("GetCharacterState", StateBags.getCharacter)
 exports("GetJobState",       StateBags.getJob)
 exports("GetUniqueIdState",  StateBags.getUniqueId)

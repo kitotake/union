@@ -3,18 +3,16 @@ game 'gta5'
 
 name 'Union Framework'
 author 'Union Kitotake'
-version '3.6'
-description 'Framework RP modulaire — Bridge System'
+version '3.7'
+description 'Framework RP modulaire — Bridge System (Fixed)'
 
--- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 -- SHARED
--- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 shared_scripts {
     '@kt_lib/init.lua',
     'shared/constants.lua',
     'shared/utils.lua',
-
-    -- ① Bridge base — DOIT être chargé en premier
     'shared/bridge/bridge_base.lua',
 }
 
@@ -23,9 +21,9 @@ shared_script 'shared/config/status_config.lua'
 shared_script 'shared/locale.lua'
 shared_script 'shared/config/webhooks.lua'
 
--- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 -- CLIENT
--- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 client_scripts {
     -- ① Composants de base
     'client/modules/components/logger.lua',
@@ -33,7 +31,7 @@ client_scripts {
     'client/modules/components/permissions.lua',
     'client/modules/components/notifications.lua',
 
-    -- ② Entry point (déclare Client = {})
+    -- ② Entry point
     'client/main.lua',
 
     -- ③ Bridges clients
@@ -41,11 +39,14 @@ client_scripts {
     'bridge/client/kt_hud.lua',
     'bridge/client/kt_target.lua',
     'bridge/client/kt_interact_data.lua',
+    -- FIX: kt_interact_editor.lua était une copie identique de kt_interact_data.lua
+    -- causant un double enregistrement. Le fichier est maintenant vide (stub).
     'bridge/client/kt_interact_editor.lua',
     'bridge/client/kt_rotation.lua',
     'bridge/client/k_menu.lua',
 
-    -- ④ Spawn main (déclare Spawn = {}, pas de thread)
+    -- ④ Spawn main (déclare Spawn = {}, SANS RegisterNetEvent union:spawn:apply)
+    -- FIX CRITIQUE: le handler union:spawn:apply est UNIQUEMENT dans handler.lua
     'client/modules/spawn/main.lua',
 
     -- ⑤ Character
@@ -75,12 +76,13 @@ client_scripts {
     'client/modules/bridge/exports.lua',
 
     -- ⑩ Spawn handler EN DERNIER — contient le CreateThread principal
-    --    Tous les modules dont il dépend sont garantis chargés
+    --    ET le seul RegisterNetEvent("union:spawn:apply")
     'client/modules/spawn/handler.lua',
 }
--- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 -- SERVER
--- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 server_scripts {
     '@oxmysql/lib/MySQL.lua',
 
@@ -92,7 +94,7 @@ server_scripts {
     -- ② Entry point
     'server/main.lua',
 
-    -- ③ Bridges serveur (chargés AVANT les modules qui les utilisent)
+    -- ③ Bridges serveur
     'bridge/server/kt_inventory.lua',
     'bridge/server/statebags.lua',
 
@@ -103,14 +105,14 @@ server_scripts {
     'server/modules/auth/characters.lua',
     'server/modules/auth/whitelist.lua',
 
-    -- ⑤ Permission (chargé AVANT player/main.lua qui l'utilise)
+    -- ⑤ Permission
     'server/modules/permission/main.lua',
     'server/modules/permission/groups.lua',
     'server/modules/permission/database.lua',
 
     -- ⑥ Player
     'server/modules/player/main.lua',
-    'server/modules/player/offline_ped.lua',   -- avant manager.lua (manager l'utilise)
+    'server/modules/player/offline_ped.lua',
     'server/modules/player/manager.lua',
     'server/modules/player/persistence.lua',
     'server/modules/player/status/manager.lua',
@@ -125,11 +127,13 @@ server_scripts {
     'server/modules/character/characterManager.lua',
 
     -- ⑧ Spawn
+    -- FIX CRITIQUE: server/modules/spawn/main.lua contenait du code CLIENT
+    -- Il est maintenant un stub serveur léger
     'server/modules/spawn/main.lua',
     'server/modules/spawn/handler.lua',
     'server/modules/spawn/position.lua',
 
-    -- ⑨ Inventory (proxy vers Bridge.Inventory)
+    -- ⑨ Inventory
     'server/modules/inventory/main.lua',
 
     -- ⑩ Vehicle
@@ -144,7 +148,7 @@ server_scripts {
     'server/modules/bank/main.lua',
     'server/modules/bank/database.lua',
 
-    -- ⑬ Commands (en dernier — utilisent tous les modules ci-dessus)
+    -- ⑬ Commands
     'server/modules/commands/character.lua',
     'server/modules/commands/admin.lua',
     'server/modules/commands/cardlist.lua',
@@ -155,32 +159,21 @@ server_scripts {
     'server/modules/commands/permission.lua',
 }
 
--- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 -- DÉPENDANCES
--- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 dependencies {
     'oxmysql',
-    -- Modules optionnels : Union reste fonctionnel sans eux
-    -- 'kt_character',
-    -- 'kt_inventory',
-    -- 'kt_hud',
-    -- 'kt_target',
-    -- 'kt_interact',
-    -- 'kt_rotation',
-    -- 'k_menu',
 }
 
--- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 -- EXPORTS SERVER
--- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 server_exports {
-    -- Player
     'GetPlayerFromId',
     'GetAllPlayers',
     'GetConfig',
     'GetLogger',
-
-    -- Inventory (via Bridge)
     'AddItem',
     'RemoveItem',
     'GetItemCount',
@@ -188,46 +181,37 @@ server_exports {
     'GiveMoney',
     'RemoveMoney',
     'GetMoney',
-
-    -- StateBags
     'GetCharacterState',
     'GetJobState',
     'GetUniqueIdState',
-
-    -- Status
     'GetPlayerStatus',
     'SetPlayerStat',
     'AddPlayerStat',
     'SetStat',
     'AddStat',
-
--- server_exports
-'GetPlayerAppearance',
-'SetPlayerAppearance',
-'UpgradePlayerAppearance',
-'ReloadPlayerAppearance',
-    
--- Character                  ← ajouter ici
+    'GetPlayerAppearance',
+    'SetPlayerAppearance',
+    'UpgradePlayerAppearance',
+    'ReloadPlayerAppearance',
     'GiveCharacter',
 }
 
-
-
--- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 -- EXPORTS CLIENT
--- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 client_exports {
     'GetConfig',
     'Notify',
     'GetLogger',
+    'GetCurrentCharacter',
+    'IsSpawned',
     'GetActiveCharacter',
     'GetActiveJob',
     'GetStatus',
     'SetStat',
     'AddStat',
     'AddPlayerStat',
-    -- client_exports
-'RequestAppearance',
-'UpdateAppearance',
-'UpgradeAppearance',
+    'RequestAppearance',
+    'UpdateAppearance',
+    'UpgradeAppearance',
 }

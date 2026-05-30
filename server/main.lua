@@ -1,14 +1,12 @@
 -- server/main.lua
 Logger:info("Initializing Union Framework server...")
 
--- Global tables
 Server = {
     isReady = false,
     players = {},
     characters = {},
 }
 
--- Wait for database connection
 CreateThread(function()
     Wait(1000)
     Logger:info("Server modules loaded successfully")
@@ -16,7 +14,6 @@ CreateThread(function()
     TriggerEvent("union:server:ready")
 end)
 
--- Export functions
 exports("GetPlayerFromId", function(id)
     if PlayerManager then
         return PlayerManager.get(tonumber(id))

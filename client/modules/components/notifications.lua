@@ -17,7 +17,6 @@ function Notifications.send(message, notifType, duration)
     })
 end
 
--- Reçoit les notifs envoyées depuis le serveur via ServerUtils.notifyPlayer()
 RegisterNetEvent("union:notify", function(message, notifType, duration)
     Notifications.send(message, notifType, duration)
 end)

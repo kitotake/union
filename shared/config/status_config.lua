@@ -1,33 +1,20 @@
 -- shared/config/status_config.lua
 
 StatusConfig = {
-
-    -- ── DEBUG ─────────────────────────────────────────────────────────────
     debug = true,
-
-    -- ── Limites ───────────────────────────────────────────────────────────
     min = 0,
     max = 100,
-
-    -- ── Valeurs par défaut ────────────────────────────────────────────────
     defaults = {
         hunger = 100,
         thirst = 100,
         stress = 0,
     },
-
-    -- ── Tick ──────────────────────────────────────────────────────────────
-    tickInterval = 10000,      -- 10 secondes
-
-    -- ── Décroissance par tick ─────────────────────────────────────────────
+    tickInterval = 10000,
     decay = {
-        hunger = 0.15,   -- augmente un peu pour un sentiment plus réaliste
+        hunger = 0.15,
         thirst = 0.25,
     },
-
-    -- ── Stress ────────────────────────────────────────────────────────────
     stressDecay = 0.5,
-
     stressGain = {
         shooting   = 3,
         sprinting  = 0.3,
@@ -36,16 +23,12 @@ StatusConfig = {
         nearDeath  = 20,
         meleeHit   = 2,
     },
-
-    -- ── Effets ────────────────────────────────────────────────────────────
     effects = {
         damageOnEmpty = true,
-        damageAmount  = 4,           -- un peu plus punitif
+        damageAmount  = 4,
         stressVisual  = true,
     },
-
-    -- ── Sauvegarde ────────────────────────────────────────────────────────
-    saveInterval = 30000, -- 30 secondes
+    saveInterval = 30000,
 }
 
 return StatusConfig

@@ -4,13 +4,11 @@ local logger = Logger:child("CHARACTER:SELECT")
 
 function CharacterSelect.open(characters)
     logger:info("Opening character selection menu")
-
     if not characters or #characters == 0 then
         Notifications.send("No characters found. Create one first!", "info")
         CharacterCreate.open()
         return
     end
-
     print("^2[CHARACTER SELECT] Available characters:")
     for i, char in ipairs(characters) do
         print(string.format("  ^3[%d]^7 %s %s (DOB: %s)",
@@ -19,9 +17,8 @@ function CharacterSelect.open(characters)
     print("^2Use /selectchar <id> to select a character")
 end
 
--- ✅ FIX : Character.list = characters écrasait la FONCTION Character.list
 function CharacterSelect.display(characters)
-    Character.characters = characters  -- utilise la bonne propriété
+    Character.characters = characters
     CharacterSelect.open(characters)
 end
 

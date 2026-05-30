@@ -1,14 +1,12 @@
 -- client/main.lua
 Logger:info("Initializing Union Framework client...")
 
--- Global tables
 Client = {
     isReady = false,
     currentCharacter = nil,
     playerState = nil,
 }
 
--- Wait for all modules to be loaded
 CreateThread(function()
     Wait(500)
     Logger:info("Client-side modules loaded successfully")
@@ -16,8 +14,7 @@ CreateThread(function()
     TriggerEvent("union:client:ready")
 end)
 
--- Export functions
-exports("GetLogger", function(tag) 
+exports("GetLogger", function(tag)
     return Logger:child(tag)
 end)
 

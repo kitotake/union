@@ -8,19 +8,14 @@ function PermissionDB.getPlayerPermissions(source, callback)
         if callback then callback({}) end
         return
     end
-
     local groupPerms = PermissionGroups.getGroupPermissions(player.group) or {}
     if callback then callback(groupPerms) end
 end
 
 function PermissionDB.getAllPlayerPermissions(callback)
-    Database.fetch(
-        "SELECT identifier, `group` FROM users",
-        {},
-        function(results)
-            if callback then callback(results or {}) end
-        end
-    )
+    Database.fetch("SELECT identifier, `group` FROM users", {}, function(results)
+        if callback then callback(results or {}) end
+    end)
 end
 
 return PermissionDB

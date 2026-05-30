@@ -1,7 +1,4 @@
 -- client/modules/commands/vehicle.lua
--- FIX : utilise Client.currentCharacter au lieu de Character.current.
-
--- /myvehicles — liste les véhicules du personnage
 RegisterCommand("myvehicles", function()
     if not Client.currentCharacter then
         Notifications.send("Aucun personnage actif.", "warning")
@@ -10,56 +7,45 @@ RegisterCommand("myvehicles", function()
     TriggerServerEvent("union:vehicle:list")
 end, false)
 
--- /spawncar <plaque> — spawner un de ses véhicules
 RegisterCommand("spawncar", function(source, args)
     if not Client.currentCharacter then
         Notifications.send("Aucun personnage actif.", "warning")
         return
     end
-
     local plate = args[1]
     if not plate then
         Notifications.send("Usage: /spawncar <plaque>", "error")
         return
     end
-
     TriggerServerEvent("union:vehicle:spawn", plate)
 end, false)
 
--- /storecar — ranger le véhicule dans lequel tu es
 RegisterCommand("storecar", function()
     if not Client.currentCharacter then
         Notifications.send("Aucun personnage actif.", "warning")
         return
     end
-
     local ped     = PlayerPedId()
     local vehicle = GetVehiclePedIsIn(ped, false)
-
     if not DoesEntityExist(vehicle) then
         Notifications.send("Vous n'êtes pas dans un véhicule.", "error")
         return
     end
-
     local plate = GetVehicleNumberPlateText(vehicle)
     if not plate or plate == "" then
         Notifications.send("Plaque illisible.", "error")
         return
     end
-
     TriggerServerEvent("union:vehicle:store", plate)
 end, false)
 
--- /vehinfo — infos du véhicule actuel
 RegisterCommand("vehinfo", function()
     local ped     = PlayerPedId()
     local vehicle = GetVehiclePedIsIn(ped, false)
-
     if not DoesEntityExist(vehicle) then
         Notifications.send("Vous n'êtes pas dans un véhicule.", "error")
         return
     end
-
     local plate        = GetVehicleNumberPlateText(vehicle)
     local engineHealth = math.floor(GetVehicleEngineHealth(vehicle))
     local bodyHealth   = math.floor(GetVehicleBodyHealth(vehicle))
@@ -67,32 +53,24 @@ RegisterCommand("vehinfo", function()
     local model        = GetEntityModel(vehicle)
     local modelName    = GetDisplayNameFromVehicleModel(model)
     local dirt_level   = math.floor(GetVehicleDirtLevel(vehicle))
-
     Notifications.send(
-        string.format(
-            "Plaque: %s | Moteur: %s | Carrosserie: %s | Carburant: %s%% | Modèle: %s | Saleté: %s%%",
-            plate, engineHealth, bodyHealth, fuel, modelName, dirt_level
-        ),
+        string.format("Plaque: %s | Moteur: %s | Carrosserie: %s | Carburant: %s%% | Modèle: %s | Saleté: %s%%",
+            plate, engineHealth, bodyHealth, fuel, modelName, dirt_level),
         "info"
     )
 end, false)
 
--- Réceptions depuis le serveur
 RegisterNetEvent("union:vehicle:listReceived", function(vehicles)
     if not vehicles or #vehicles == 0 then
         Notifications.send("Vous n'avez aucun véhicule.", "warning")
         return
     end
-
     print("^2[VEHICLES] Vos véhicules :")
     for _, v in ipairs(vehicles) do
         local stored = v.stored == 1 and "^3[GARÉ]^7" or "^2[SORTI]^7"
-        print(string.format(
-            "  %s ^3%s^7 — Modèle : %s | Moteur : %.0f | Carburant : %.0f%%",
-            stored, v.plate, v.vehicle_model, v.engine_health, v.fuel
-        ))
+        print(string.format("  %s ^3%s^7 — Modèle : %s | Moteur : %.0f | Carburant : %.0f%%",
+            stored, v.plate, v.vehicle_model, v.engine_health, v.fuel))
     end
-
     Notifications.send(#vehicles .. " véhicule(s). (voir console F8)", "info")
 end)
 

@@ -1,7 +1,4 @@
 -- client/modules/character/main.lua
--- FIX CM-1 : character.create() n'exige plus gender (colonne inexistante).
---            Seul ped_model est requis (détermine le genre implicitement).
-
 Character = {}
 local logger = Logger:child("CHARACTER")
 
@@ -14,13 +11,11 @@ function Character.list()
 end
 
 function Character.create(data)
-    -- FIX CM-1 : validation sans gender (colonne absente de characters)
     if not data.firstname or not data.lastname or not data.dateofbirth or not data.ped_model then
         logger:error("Incomplete character data")
         Notifications.send(_t("character.create_failed"), "error")
         return
     end
-
     logger:info("Creating character: " .. data.firstname .. " " .. data.lastname)
     TriggerServerEvent("union:character:create", data)
 end
@@ -30,7 +25,6 @@ function Character.select(id)
         logger:error("Invalid character ID: " .. tostring(id))
         return
     end
-
     logger:info("Selecting character: " .. id)
     TriggerServerEvent("union:character:select", id)
 end
@@ -40,7 +34,6 @@ function Character.delete(id)
         logger:error("Invalid character ID: " .. tostring(id))
         return
     end
-
     logger:info("Deleting character: " .. id)
     TriggerServerEvent("union:character:delete", id)
 end
@@ -73,8 +66,8 @@ RegisterNetEvent("union:character:selected", function(success, character)
     end
 end)
 
+-- FIX: suppression du print debug + utilisation des clés de locale correctes
 RegisterNetEvent("union:character:reload", function(success)
-   print ("Character reload event received - success: " .. tostring(success))
     if success then
         logger:info("Character data reloaded successfully")
         Notifications.send(_t("character.reload_success"), "success")

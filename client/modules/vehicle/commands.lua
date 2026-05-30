@@ -1,6 +1,4 @@
 -- client/modules/vehicle/commands.lua
--- FIX #5 : ce fichier est intentionnellement vide.
---           Les commandes /myvehicles et /spawncar étaient dupliquées ici
---           ET dans client/modules/commands/vehicle.lua.
---           La version dans commands/vehicle.lua est complète et correcte.
---           Ce fichier n'est plus chargé dans fxmanifest.lua.
+-- FIX: Ce fichier est intentionnellement vide.
+-- Les commandes véhicules sont dans client/modules/commands/vehicle.lua
+-- pour éviter les doublons.

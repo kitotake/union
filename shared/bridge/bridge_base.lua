@@ -1,25 +1,16 @@
--- shared/bridge_base.lua
+-- shared/bridge/bridge_base.lua
 -- Pattern de base pour tous les bridges Union Framework
--- Ce fichier est chargé en premier dans shared_scripts
 
 Bridge = Bridge or {}
 
--- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- FACTORY : crée un bridge standard pour un module externe
--- Usage :
---   Bridge.Character = Bridge.create("kt_character")
---   Bridge.Character.call("ApplyPreview", charData)
--- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 function Bridge.create(resourceName)
     local self = {
         resource  = resourceName,
         available = false,
     }
 
-    -- Vérifie l'état au démarrage
     self.available = GetResourceState(resourceName) == "started"
 
-    -- Écoute les starts/stops pour mettre à jour l'état en temps réel
     AddEventHandler("onResourceStart", function(r)
         if r == resourceName then
             self.available = true
@@ -34,7 +25,6 @@ function Bridge.create(resourceName)
         end
     end)
 
-    -- Guard interne
     function self:guard(fnName)
         if not self.available then
             print(("^3[BRIDGE:%s] '%s' non disponible — ignoré^7"):format(self.resource, fnName))
@@ -43,7 +33,6 @@ function Bridge.create(resourceName)
         return true
     end
 
-    -- Appel sécurisé d'un export
     function self:call(fnName, ...)
         if not self:guard(fnName) then return nil end
         local args = { ... }
@@ -57,7 +46,6 @@ function Bridge.create(resourceName)
         return result
     end
 
-    -- Vérifie si le module est disponible
     function self:isAvailable()
         return self.available
     end
@@ -65,9 +53,6 @@ function Bridge.create(resourceName)
     return self
 end
 
--- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- REGISTRE des bridges actifs (pour debug)
--- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 Bridge._registry = {}
 
 function Bridge.register(name, instance)

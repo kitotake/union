@@ -1,8 +1,4 @@
 -- shared/utils.lua
--- FIXES:
---   #1 : Utils.hasPermission — appel corrigé de PermissionSystem.HasPermission
---        (majuscule incorrecte) → PermissionSystem.hasPermission
-
 Utils = {}
 
 function Utils.log(tag, message, level)
@@ -59,7 +55,7 @@ function Utils.validateDate(date)
     return true
 end
 
--- FIX #1 : correction de la casse (hasPermission, pas HasPermission)
+-- FIX: correction casse hasPermission (pas HasPermission)
 function Utils.hasPermission(permission)
     if IsDuplicityVersion() then
         return PermissionSystem.hasPermission(source, permission)
