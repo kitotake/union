@@ -144,15 +144,17 @@ end)
 exports("GetPlayerStatus", StatusManager.get)
 exports("SetPlayerStat",   StatusManager.setAndSend)
 exports("AddPlayerStat",   StatusManager.add)
-exports("SetStat", function(stat, value)
-    StatusManager.setAndSend(source, stat, value)
+
+
+exports("SetStat", function(src, stat, value)
+    StatusManager.setAndSend(src, stat, value)
 end)
 exports("AddStat", function(src, stat, value)
     StatusManager.add(src, stat, value)
     local s = StatusManager.cache[src]
     if not s then return end
     if GetPlayerEndpoint(src) then
-        TriggerClientEvent("union:status:updateAll", src, { hunger = s.hunger, thirst = s.thirst, stress = s.stress })
+        TriggerClientEvent("union:status:updateAll", src, { hunger=s.hunger, thirst=s.thirst, stress=s.stress })
         s._pendingSend = false
     end
     local player = PlayerManager.get(src)

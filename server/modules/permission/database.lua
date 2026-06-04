@@ -1,5 +1,5 @@
 -- server/modules/permission/database.lua
-PermissionDB = {}
+PermissionDB        = {}
 PermissionDB.logger = Logger:child("PERMISSION:DATABASE")
 
 function PermissionDB.getPlayerPermissions(source, callback)
@@ -13,9 +13,13 @@ function PermissionDB.getPlayerPermissions(source, callback)
 end
 
 function PermissionDB.getAllPlayerPermissions(callback)
-    Database.fetch("SELECT identifier, `group` FROM users", {}, function(results)
-        if callback then callback(results or {}) end
-    end)
+    Database.fetch(
+        "SELECT identifier, `group` FROM users",
+        {},
+        function(results)
+            if callback then callback(results or {}) end
+        end
+    )
 end
 
 return PermissionDB

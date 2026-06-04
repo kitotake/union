@@ -247,3 +247,4 @@ CreateThread(function()
     Logger:info("Client ready — requesting initial spawn")
     Spawn.initialize()
 end)
+

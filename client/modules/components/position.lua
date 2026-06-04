@@ -62,7 +62,15 @@ function Position.get()
 end
 
 function Position.setLast(position, heading)
-    if position and position.x ~= 0 then
+    -- FIX ENSURE: nil explicitement reset l'état
+    if position == nil then
+        lastSavedPos     = nil
+        lastSavedHeading = nil
+        positionSaved    = false
+        Logger:debug("Position reset (ensure/restart)")
+        return
+    end
+    if position.x ~= 0 then
         lastSavedPos     = position
         lastSavedHeading = heading or 0.0
         positionSaved    = true

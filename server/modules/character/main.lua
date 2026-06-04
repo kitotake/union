@@ -78,6 +78,7 @@ end
 
 function Character.select(player, characterId, callback)
     if not player or not characterId then return callback and callback(false, nil) end
+
     local selected
     for _, char in ipairs(player.characters) do
         if char.id == characterId then selected = char; break end
@@ -86,9 +87,11 @@ function Character.select(player, characterId, callback)
         Character.logger:warn("Personnage introuvable : " .. tostring(characterId))
         return callback and callback(false, nil)
     end
+
     player.currentCharacter = selected
     Character.logger:info(("Personnage sélectionné pour %s : %s %s"):format(
         player.name, selected.firstname, selected.lastname))
+
     local position, heading
     if selected.position then
         position, heading = decodePosition(selected.position)
@@ -96,6 +99,7 @@ function Character.select(player, characterId, callback)
         position = Config.spawn.defaultPosition
         heading  = Config.spawn.defaultHeading
     end
+
     local pedModel = resolveModel(selected)
     local charData = {
         id          = selected.id,
@@ -111,16 +115,31 @@ function Character.select(player, characterId, callback)
         job_grade   = selected.job_grade or 0,
         dateofbirth = selected.dateofbirth,
     }
-    Database.fetchOne("SELECT skin_data FROM character_appearances WHERE unique_id = ?",
-        { selected.unique_id }, function(appearance)
+
+    Database.fetchOne(
+        "SELECT skin_data FROM character_appearances WHERE unique_id = ?",
+        { selected.unique_id },
+        function(appearance)
             applySkinDataToCharData(charData, appearance)
-            if callback then callback(true, selected) end
+
+            -- FIX: vérifier la connexion avant tout
             if not isPlayerConnected(player.source) then
-                Character.logger:warn(("select: joueur %s déconnecté avant TriggerClientEvent"):format(player.name))
-                return
+                Character.logger:warn(("select: joueur %s déconnecté avant spawn"):format(player.name))
+                return callback and callback(false, nil)
             end
+
+            -- FIX: envoyer le spawn EN PREMIER, puis notifier le callback
+            -- Ainsi les appelants (characterManager, handler) ne peuvent pas
+            -- déclencher d'actions qui précèdent le spawn côté client
             TriggerClientEvent("union:spawn:apply", player.source, charData)
-        end)
+            Character.logger:info(("union:spawn:apply envoyé → %s (uid=%s)"):format(
+                player.name, charData.unique_id))
+
+            -- Le callback reçoit charData (pas selected) pour que les appelants
+            -- aient accès aux données complètes incluant position/skin résolus
+            if callback then callback(true, charData) end
+        end
+    )
 end
 
 function Character.delete(player, characterId, callback)

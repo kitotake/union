@@ -80,5 +80,11 @@ AddEventHandler("onClientResourceStart", function(resourceName)
     Client.currentCharacter = nil
     nuiOpen                 = false
     SetNuiFocus(false, false)
+
+    -- FIX ENSURE: reset de la position mémorisée pour éviter d'utiliser une ancienne position
+    if Position then
+        Position.setLast(nil, nil)
+    end
+
     Logger:info("[charManager] Reset terminé — handler.lua prend le relais")
 end)

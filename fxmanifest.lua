@@ -3,7 +3,7 @@ game 'gta5'
 
 name 'Union Framework'
 author 'Union Kitotake'
-version '3.7'
+version '3.8'
 description 'Framework RP modulaire — Bridge System (Fixed)'
 
 -- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -25,45 +25,47 @@ shared_script 'shared/config/webhooks.lua'
 -- CLIENT
 -- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 client_scripts {
-    -- ① Composants de base
+    -- ① Composants de base (pas de dépendances)
     'client/modules/components/logger.lua',
-    'client/modules/components/position.lua',
-    'client/modules/components/permissions.lua',
     'client/modules/components/notifications.lua',
+    'client/modules/components/permissions.lua',
+    'client/modules/components/position.lua',
 
-    -- ② Entry point
+    -- ② Entry point (dépend de Logger, Notifications)
     'client/main.lua',
 
-    -- ③ Bridges clients
+    -- ③ Bridges clients (dépendent de Bridge, Logger)
     'bridge/client/kt_character.lua',
     'bridge/client/kt_hud.lua',
     'bridge/client/kt_target.lua',
     'bridge/client/kt_interact_data.lua',
-    -- FIX: kt_interact_editor.lua était une copie identique de kt_interact_data.lua
-    -- causant un double enregistrement. Le fichier est maintenant vide (stub).
+    -- FIX: stub vide — kt_interact_editor était un doublon de kt_interact_data
     'bridge/client/kt_interact_editor.lua',
     'bridge/client/kt_rotation.lua',
     'bridge/client/k_menu.lua',
 
-    -- ④ Spawn main (déclare Spawn = {}, SANS RegisterNetEvent union:spawn:apply)
-    -- FIX CRITIQUE: le handler union:spawn:apply est UNIQUEMENT dans handler.lua
+    -- ④ Spawn main (déclare Spawn = {} uniquement, sans handler)
+    -- FIX CRITIQUE: union:spawn:apply est UNIQUEMENT dans handler.lua
     'client/modules/spawn/main.lua',
 
-    -- ⑤ Character
+    -- ⑤ Character (dépend de Logger, Notifications, Spawn)
     'client/modules/character/main.lua',
     'client/modules/character/create.lua',
     'client/modules/character/select.lua',
     'client/modules/character/characterManager.lua',
-    'client/modules/character/appearance.lua',
 
-    -- ⑥ Player
+    -- ⑥ Player (dépend de Logger, Client)
     'client/modules/player/status/status_client.lua',
     'client/modules/player/offline_ped.lua',
 
-    -- ⑦ Vehicle
+    -- ⑦ Apparence client (dépend de Bridge.Character, OfflinePeds, Logger)
+    -- FIX: était absent du manifest — le module était silencieusement ignoré
+    'client/modules/character/appearance.lua',
+
+    -- ⑧ Vehicle (dépend de Logger, Notifications)
     'client/modules/vehicle/main.lua',
 
-    -- ⑧ Commands
+    -- ⑨ Commands (dépendent de tout ce qui précède)
     'client/modules/commands/character.lua',
     'client/modules/commands/admin.lua',
     'client/modules/commands/debug.lua',
@@ -72,11 +74,13 @@ client_scripts {
     'client/modules/commands/bank.lua',
     'client/modules/commands/vehicle.lua',
 
-    -- ⑨ Bridge exports
+    -- ⑩ Bridge exports (dépend de Client, Logger, Notifications, StatusClient)
     'client/modules/bridge/exports.lua',
 
-    -- ⑩ Spawn handler EN DERNIER — contient le CreateThread principal
+    -- ⑪ Spawn handler EN DERNIER
+    --    Contient le CreateThread principal de connexion
     --    ET le seul RegisterNetEvent("union:spawn:apply")
+    --    Dépend de tout : Spawn, Character, Bridge.Character, OfflinePeds, Position, Config
     'client/modules/spawn/handler.lua',
 }
 
@@ -86,31 +90,33 @@ client_scripts {
 server_scripts {
     '@oxmysql/lib/MySQL.lua',
 
-    -- ① Composants de base
+    -- ① Composants de base (pas de dépendances)
     'server/components/logger.lua',
     'server/components/database.lua',
     'server/components/utils.lua',
 
-    -- ② Entry point
+    -- ② Entry point (dépend de Logger)
     'server/main.lua',
 
-    -- ③ Bridges serveur
+    -- ③ Bridges serveur (dépendent de Bridge, Logger)
     'bridge/server/kt_inventory.lua',
     'bridge/server/statebags.lua',
 
-    -- ④ Auth
+    -- ④ Auth (dépend de Database, ServerUtils, Logger)
     'server/modules/auth/connect.lua',
     'server/modules/auth/identifiers.lua',
     'server/modules/auth/webhooks.lua',
     'server/modules/auth/characters.lua',
     'server/modules/auth/whitelist.lua',
 
-    -- ⑤ Permission
-    'server/modules/permission/main.lua',
+    -- ⑤ Permission (dépend de Logger, Database)
+    -- FIX ordre: groups avant main car main appelle PermissionGroups
     'server/modules/permission/groups.lua',
+    'server/modules/permission/main.lua',
     'server/modules/permission/database.lua',
 
-    -- ⑥ Player
+    -- ⑥ Player (dépend de Auth, Permission, Database, Logger)
+    -- FIX ordre: main (PlayerClass) AVANT manager (PlayerManager) et offline_ped
     'server/modules/player/main.lua',
     'server/modules/player/offline_ped.lua',
     'server/modules/player/manager.lua',
@@ -118,37 +124,39 @@ server_scripts {
     'server/modules/player/status/manager.lua',
     'server/modules/player/status/status_tick.lua',
 
-    -- ⑦ Character
-    'server/modules/character/main.lua',
+    -- ⑦ Character (dépend de PlayerManager, Database, BankDB, ServerUtils)
+    -- FIX ordre: database avant main car main appelle CharacterDB
+    -- FIX ordre: select avant characterManager car characterManager appelle CharacterSelect
+    'server/modules/character/database.lua',
     'server/modules/character/create.lua',
     'server/modules/character/select.lua',
+    'server/modules/character/main.lua',
     'server/modules/character/appearance.lua',
-    'server/modules/character/database.lua',
     'server/modules/character/characterManager.lua',
 
-    -- ⑧ Spawn
-    -- FIX CRITIQUE: server/modules/spawn/main.lua contenait du code CLIENT
-    -- Il est maintenant un stub serveur léger
+    -- ⑧ Spawn (dépend de PlayerManager, Character, Config)
+    -- FIX CRITIQUE: main.lua est un stub serveur léger (l'ancien contenait du code client)
     'server/modules/spawn/main.lua',
-    'server/modules/spawn/handler.lua',
     'server/modules/spawn/position.lua',
+    'server/modules/spawn/handler.lua',
 
-    -- ⑨ Inventory
+    -- ⑨ Inventory (dépend de Bridge.Inventory)
     'server/modules/inventory/main.lua',
 
-    -- ⑩ Vehicle
+    -- ⑩ Vehicle (dépend de PlayerManager, Database)
     'server/modules/vehicle/main.lua',
     'server/modules/vehicle/database.lua',
 
-    -- ⑪ Job
+    -- ⑪ Job (dépend de PlayerManager, Database)
     'server/modules/job/main.lua',
     'server/modules/job/database.lua',
 
-    -- ⑫ Bank
-    'server/modules/bank/main.lua',
+    -- ⑫ Bank (dépend de PlayerManager, Database)
+    -- FIX ordre: database avant main car main appelle BankDB
     'server/modules/bank/database.lua',
+    'server/modules/bank/main.lua',
 
-    -- ⑬ Commands
+    -- ⑬ Commands (dépendent de tout ce qui précède)
     'server/modules/commands/character.lua',
     'server/modules/commands/admin.lua',
     'server/modules/commands/cardlist.lua',
@@ -156,6 +164,7 @@ server_scripts {
     'server/modules/commands/taginfo.lua',
     'server/modules/commands/job.lua',
     'server/modules/commands/bank.lua',
+    -- FIX: permission.lua était absent du manifest — /setgroup n'existait pas en jeu
     'server/modules/commands/permission.lua',
 }
 

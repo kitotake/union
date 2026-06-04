@@ -52,6 +52,7 @@ function SpawnPosition.isValid(position)
     return true
 end
 
+-- Remplacer le RegisterNetEvent("union:position:save") existant par :
 RegisterNetEvent("union:position:save", function(position, heading, health, armor, isDead)
     local src = source
     local now = GetGameTimer()
@@ -59,6 +60,16 @@ RegisterNetEvent("union:position:save", function(position, heading, health, armo
     _lastSave[src] = now
     local player = PlayerManager.get(src)
     if not player or not player.currentCharacter or not position then return end
+
+    -- FIX: stocker heading dans la table position pour que playerDropped l'encode correctement
+    player.currentCharacter.position = {
+        x       = position.x,
+        y       = position.y,
+        z       = position.z,
+        heading = heading or 0.0,
+    }
+    player.currentCharacter.heading = heading or 0.0
+
     SpawnPosition.save(player, position, heading, health, armor, isDead)
     TriggerClientEvent("union:position:loaded", src, position, heading)
 end)
