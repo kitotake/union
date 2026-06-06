@@ -1,6 +1,14 @@
 -- client/modules/components/position.lua
 Position = {}
 
+print("Position module loaded") -- Debug initial load
+print("Position module: setting up event handlers") -- Debug
+print("Position module: registering net event for position loaded") -- Debug
+print("Position module: registering main loop for position saving") -- Debug
+print("Position module setup completed") -- Debug
+print("Position module is ready") -- Debug
+print("Position module initialization completed") -- Debug
+
 local lastSavedPos     = nil
 local lastSavedHeading = nil
 local positionSaved    = false
@@ -9,6 +17,8 @@ local MOVE_THRESHOLD = 2.0
 local SAVE_INTERVAL  = 30000
 local MIN_INTERVAL   = 3000
 local lastSaveTime   = 0
+
+print("Position module constants: MOVE_THRESHOLD=" .. MOVE_THRESHOLD .. " SAVE_INTERVAL=" .. SAVE_INTERVAL .. " MIN_INTERVAL=" .. MIN_INTERVAL) -- Debug
 
 local function getCharacterStats()
     local ped    = PlayerPedId()
@@ -31,13 +41,17 @@ function Position.save(force)
     local ped = PlayerPedId()
     if not DoesEntityExist(ped) then return end
     if IsEntityDead(ped) then
+        print("Position save skipped because player is dead") -- Debug
         Logger:debug("Position skip: joueur mort")
+        print("Position save skipped for player because they are dead") -- Debug
         return
     end
     local coords  = GetEntityCoords(ped)
     local heading = GetEntityHeading(ped)
     if math.abs(coords.x) < 1.0 and math.abs(coords.y) < 1.0 then
+        print("Position save skipped due to null coordinates: x=" .. tostring(coords.x) .. " y=" .. tostring(coords.y) .. " z=" .. tostring(coords.z)) -- Debug
         Logger:debug("Position skip: coords nulles (spawn en cours)")
+        print("Position save skipped for player with coords: " .. tostring(coords)) -- Debug
         return
     end
     if not force and not canSave() then return end
@@ -51,22 +65,32 @@ function Position.save(force)
     lastSavedHeading = heading
     positionSaved    = true
     lastSaveTime     = GetGameTimer()
+    print("Saving position: x=" .. tostring(coords.x) .. " y=" .. tostring(coords.y) .. " z=" .. tostring(coords.z) .. " heading=" .. tostring(heading) .. " health=" .. tostring(health) .. " armor=" .. tostring(armor) .. " isDead=" .. tostring(isDead)) -- Debug
     Logger:debug(("Position save → x=%.1f y=%.1f z=%.1f HP=%d Armor=%d"):format(
         coords.x, coords.y, coords.z, health, armor
     ))
+
+    print("Triggering server event to save position for player with coords: " .. tostring(coords) .. " and heading: " .. tostring(heading)) -- Debug
     TriggerServerEvent("union:position:save", coords, heading, health, armor, isDead)
 end
 
 function Position.get()
+    print("Position.get called, returning last saved position and heading") -- Debug
     return lastSavedPos, lastSavedHeading, positionSaved
+    print("Position.get completed, positionSaved=" .. tostring(positionSaved)) -- Debug
+    printprint("Position.get returning: " .. tostring(lastSavedPos) .. " with heading: " .. tostring(lastSavedHeading)) -- Debug
 end
 
 function Position.setLast(position, heading)
+    print("Position.setLast called with position: " .. tostring(position) .. " and heading: " .. tostring(heading)) -- Debug
+print("Position.setLast called with position: " .. tostring(position) .. " and heading: " .. tostring(heading)) -- Debug
+    print("Position.setLast called with position: " .. tostring(position) .. " and heading: " .. tostring(heading)) -- Debug
     -- FIX ENSURE: nil explicitement reset l'état
     if position == nil then
         lastSavedPos     = nil
         lastSavedHeading = nil
         positionSaved    = false
+        print("Position reset to nil by server instruction") -- Debug
         Logger:debug("Position reset (ensure/restart)")
         return
     end
@@ -74,14 +98,17 @@ function Position.setLast(position, heading)
         lastSavedPos     = position
         lastSavedHeading = heading or 0.0
         positionSaved    = true
+        print("Position mise à jour depuis le serveur: x=" .. tostring(position.x) .. " y=" .. tostring(position.y) .. " z=" .. tostring(position.z) .. " heading=" .. tostring(heading)) -- Debug
         Logger:debug("Position reçue du serveur: " .. tostring(position))
     else
         positionSaved = false
+        print("Position invalide reçue du serveur (x=0), positionSaved set to false") -- Debug
         Logger:debug("Position invalide reçue du serveur")
     end
 end
 
 RegisterNetEvent("union:position:loaded", function(position, heading)
+print("Received position loaded event from server with position: " .. tostring(position) .. " and heading: " .. tostring(heading)) -- Debug
     Position.setLast(position, heading)
 end)
 

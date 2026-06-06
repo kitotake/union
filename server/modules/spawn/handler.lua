@@ -1,18 +1,27 @@
 -- server/modules/spawn/handler.lua
 SpawnHandler        = {}
+
 SpawnHandler.logger = Logger:child("SPAWN:HANDLER")
 SpawnHandler._sessions      = {}
 SpawnHandler._confirming    = {}
 SpawnHandler._spawnedGuard  = {}
+
+print("SpawnHandler module loaded") -- Debug initial load
+
 local SPAWN_DEDUP_WINDOW    = 5000
+print("SpawnHandler initialized with deduplication window: " .. SPAWN_DEDUP_WINDOW .. "ms") -- Debug
 
 local function isConnected(src) return GetPlayerEndpoint(src) ~= nil end
 
 RegisterNetEvent("union:spawn:requestInitial", function()
-    local src    = source
+
+print("union:spawn:requestInitial received from src=" .. tostring(source)) -- Debug
+    
+local src    = source
     local player = PlayerManager.get(src)
     if not player then
         SpawnHandler.logger:error("requestInitial: joueur introuvable pour source " .. src); return
+print("Player not found for src=" .. tostring(src) .. " in requestInitial") -- Debug
     end
     if player.isLoading then
         local waited = 0
@@ -20,6 +29,7 @@ RegisterNetEvent("union:spawn:requestInitial", function()
     end
     if not isConnected(src) then
         SpawnHandler.logger:warn("requestInitial: joueur " .. src .. " déconnecté pendant l'attente"); return
+    print("Player disconnected during requestInitial wait for src=" .. tostring(src)) -- Debug
     end
     local chars = player.characters or {}
     if #chars == 0 then
@@ -57,35 +67,132 @@ function SpawnHandler._buildCharData(char)
     local defPos = Config.spawn.defaultPosition
     local defHdg = Config.spawn.defaultHeading
     local px, py, pz, heading = defPos.x, defPos.y, defPos.z, defHdg
+
+    print("Building character data")
+
     if char.position then
+        print("Character has saved position: " .. tostring(char.position))
+
         local ok, p = pcall(json.decode, tostring(char.position))
-        if ok and p and p.x then px, py, pz = p.x, p.y, p.z; heading = p.heading or defHdg end
+
+        if ok and p and p.x then
+            px, py, pz = p.x, p.y, p.z
+            heading = p.heading or defHdg
+        end
+
+        print(
+            "Character position decoded: " ..
+            tostring(px) .. "," ..
+            tostring(py) .. "," ..
+            tostring(pz) .. " heading=" ..
+            tostring(heading)
+        )
     end
+
+    print(
+        "Building character data: id=" ..
+        tostring(char.id) ..
+        " uid=" ..
+        tostring(char.unique_id) ..
+        " name=" ..
+        tostring(char.firstname) ..
+        " " ..
+        tostring(char.lastname)
+    )
+
+    print(
+        "Character ped_model: " ..
+        tostring(char.ped_model) ..
+        " dateofbirth: " ..
+        tostring(char.dateofbirth)
+    )
+
+    print(
+        "Character position set to x=" ..
+        tostring(px) ..
+        " y=" ..
+        tostring(py) ..
+        " z=" ..
+        tostring(pz) ..
+        " heading=" ..
+        tostring(heading)
+    )
+
+    print(
+        "Character health: " ..
+        tostring(char.health) ..
+        " armor: " ..
+        tostring(char.armor)
+    )
+
+    print(
+        "Character job: " ..
+        tostring(char.job) ..
+        " job_grade: " ..
+        tostring(char.job_grade)
+    )
+
     return {
-        id = char.id, unique_id = char.unique_id, firstname = char.firstname, lastname = char.lastname,
-        ped_model = char.ped_model or Config.spawn.defaultModel, dateofbirth = char.dateofbirth,
-        position = { x = px, y = py, z = pz }, heading = heading,
-        health = char.health or Config.character.defaultHealth, armor = char.armor or 0,
-        job = char.job or "unemployed", job_grade = char.job_grade or 0,
+        id = char.id,
+        unique_id = char.unique_id,
+        firstname = char.firstname,
+        lastname = char.lastname,
+
+        ped_model = char.ped_model or Config.spawn.defaultModel,
+        dateofbirth = char.dateofbirth,
+
+        position = {
+            x = px,
+            y = py,
+            z = pz
+        },
+
+        heading = heading,
+        health = char.health or Config.character.defaultHealth,
+        armor = char.armor or 0,
+        job = char.job or "unemployed",
+        job_grade = char.job_grade or 0,
     }
 end
 
 RegisterNetEvent("union:spawn:requestRespawn", function(model)
     local src    = source
     local player = PlayerManager.get(src)
+
     if not player or not player.currentCharacter then return end
     if not isConnected(src) then return end
+
     local char   = player.currentCharacter
     local defPos = Config.spawn.defaultPosition
+
+    print(
+        "position for respawn set to x=" ..
+        tostring(defPos.x) ..
+        " y=" ..
+        tostring(defPos.y) ..
+        " z=" ..
+        tostring(defPos.z)
+    )
+
     TriggerClientEvent("union:spawn:apply", src, {
-        id = char.id, unique_id = char.unique_id,
+        id = char.id,
+        unique_id = char.unique_id,
         ped_model = model or char.ped_model or Config.spawn.defaultModel,
-        position = { x = defPos.x, y = defPos.y, z = defPos.z },
-        heading = Config.spawn.defaultHeading, health = Config.character.defaultHealth, armor = 0,
+
+        position = {
+            x = defPos.x,
+            y = defPos.y,
+            z = defPos.z
+        },
+
+        heading = Config.spawn.defaultHeading,
+        health = Config.character.defaultHealth,
+        armor = 0,
     })
 end)
 
 RegisterNetEvent("union:spawn:confirm", function(uniqueId)
+    print("union:spawn:confirm received from src=" .. tostring(source) .. " for uniqueId=" .. tostring(uniqueId)) -- Debug
     local src    = source
     local player = PlayerManager.get(src)
     if not player then return end

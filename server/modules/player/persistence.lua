@@ -3,6 +3,8 @@ Persistence          = {}
 Persistence.logger   = Logger:child("PERSISTENCE")
 Persistence.saveInterval = Config.spawn.saveInterval or 30000
 
+print("Persistence module loaded with save interval: " .. tostring(Persistence.saveInterval) .. "ms") -- Debug initial load
+
 function Persistence.savePlayer(player)
     if not player or not player.currentCharacter then return false end
     if not player.isSpawned then
@@ -12,6 +14,7 @@ function Persistence.savePlayer(player)
     local char    = player.currentCharacter
     local posData = char.position
     if not posData then
+        print("No position data for player " .. (player.name or "?") .. ", skipping save") -- Debug
         Persistence.logger:warn("Skip save (position nil) : " .. (player.name or "?"))
         return false
     end
@@ -26,6 +29,7 @@ function Persistence.savePlayer(player)
         px, py, pz = posData.x, posData.y, posData.z; heading = char.heading or 0.0
     end
     if not px or (math.abs(px) < 1.0 and math.abs(py or 0) < 1.0) then
+        print("Skipping save for player " .. (player.name or "?") .. " with null coordinates") -- Debug
         Persistence.logger:warn("Skip save (coords nulles) : " .. (player.name or "?"))
         return false
     end
@@ -33,20 +37,34 @@ function Persistence.savePlayer(player)
     local health  = char.health  or Config.character.defaultHealth
     local armor   = char.armor   or 0
     local isDead  = char.is_dead or 0
-    Database.execute([[
-        UPDATE characters SET position = ?, health = ?, armor = ?, is_dead = ?, last_played = NOW()
-        WHERE unique_id = ?
-    ]], { posJson, health, armor, isDead, char.unique_id }, function(result)
-        if result then
-            Persistence.logger:debug(("Backup save OK: %s | HP=%d Armor=%d Dead=%d"):format(player.name, health, armor, isDead))
-        else
-            Persistence.logger:error("Backup save échoué: " .. player.name)
-        end
-    end)
+   Database.execute([[
+    UPDATE characters SET position = ?, health = ?, armor = ?, is_dead = ?, last_played = NOW()
+    WHERE unique_id = ?
+]], { posJson, health, armor, isDead, char.unique_id }, function(result)
+    if result then
+        print("Backup save OK for " .. (player.name or "?") .. " at position " .. posJson)
+        Persistence.logger:debug(("Backup save OK: %s | HP=%d Armor=%d Dead=%d"):format(
+            player.name,
+            health,
+            armor,
+            isDead
+        ))
+        print("Backup save completed for " .. (player.name or "?"))
+    else
+        print("Backup save FAILED for " .. (player.name or "?"))
+        Persistence.logger:error("Backup save échoué: " .. player.name)
+    end
+
+    print("Backup save result callback completed for " .. (player.name or "?"))
+    print("Database.execute callback finished for " .. (player.name or "?"))
+    print("Finished savePlayer for " .. (player.name or "?"))
+end)
     return true
 end
 
 function Persistence.saveAllPlayers()
+    print("Initiating backup save for all players...") -- Debug
+    Persistence.logger:info("Initiating backup save for all players...")
     local saved = 0
     for _, player in pairs(PlayerManager.getAll()) do
         if player.isSpawned and Persistence.savePlayer(player) then saved = saved + 1 end
@@ -63,6 +81,7 @@ end)
 
 AddEventHandler("onResourceStop", function(resource)
     if resource == GetCurrentResourceName() then
+        print("Sauvegarde avant arrêt...") -- Debug
         Persistence.logger:info("Sauvegarde avant arrêt...")
         for _, player in pairs(PlayerManager.getAll()) do
             Persistence.savePlayer(player)

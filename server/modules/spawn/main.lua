@@ -1,17 +1,19 @@
--- server/modules/spawn/main.lua
--- FIX CRITIQUE: Ce fichier est côté SERVEUR. L'ancienne version contenait du code
--- CLIENT (PlayerPedId, SetPlayerModel, etc.) qui était une copie erronée du fichier
--- client/modules/spawn/main.lua. Ce fichier serveur ne doit contenir que
--- la logique serveur de spawn (Spawn.initialize, Spawn.respawn côté serveur).
-
 Spawn = {}
 local logger = Logger:child("SPAWN:SERVER")
 
+print("Spawn module loaded") -- Debug initial load
+
 function Spawn.initialize(player)
     if not player then return false end
-    logger:info(("Initialisation spawn pour %s"):format(player.name))
+
+    logger:info(("Initialisation spawn pour %s"):format(player.name or "?"))
+
+    print("Spawn.initialize called for player: " .. (player.name or "?")) -- OK ici
+
     return true
 end
+
+-- ❌ SUPPRIMÉ : print avec player hors scope (ca faisait crash)
 
 function Spawn.respawnPlayer(src, model)
     local player = PlayerManager.get(src)
@@ -21,15 +23,30 @@ function Spawn.respawnPlayer(src, model)
     local defPos = Config.spawn.defaultPosition
     local char   = player.currentCharacter
 
+    print(
+        "position for respawn set to x=" .. tostring(defPos.x) ..
+        " y=" .. tostring(defPos.y) ..
+        " z=" .. tostring(defPos.z)
+    )
+
     TriggerClientEvent("union:spawn:apply", src, {
-        id        = char.id,
+        id = char.id,
         unique_id = char.unique_id,
         ped_model = model or char.ped_model or Config.spawn.defaultModel,
-        position  = { x = defPos.x, y = defPos.y, z = defPos.z },
-        heading   = Config.spawn.defaultHeading,
-        health    = Config.character.defaultHealth,
-        armor     = 0,
+        position = {
+            x = defPos.x,
+            y = defPos.y,
+            z = defPos.z
+        },
+        heading = Config.spawn.defaultHeading,
+        health = Config.character.defaultHealth,
+        armor = 0,
     })
+
+    print("Spawn.respawnPlayer event triggered for src=" ..
+        tostring(src) .. " model=" .. tostring(model)
+    )
+
     return true
 end
 

@@ -68,3 +68,22 @@ RegisterCommand("deletechar", function(source, args)
         end
     end)
 end, false)
+
+
+print("Character command module loaded") -- Debug
+print("Available commands: charinfo, deletechar") -- Debug
+print("Commands require permissions: charinfo -> admin.kick, deletechar -> character.delete") -- Debug
+print("Use /charinfo <id> to get character info and /deletechar <id> <characterId> to delete a character") -- Debug
+print("Ensure you have the correct permissions to use these commands") -- Debug
+print("Character command module initialization complete") -- Debug
+print("Ready to handle character commands") -- Debug
+print("Character command module is now active") -- Debug
+print("Character command module loaded successfully and ready for use") -- Debug
+print("Character command module: charinfo and deletechar commands are available") -- Debug
+print("Character command module: charinfo requires admin.kick permission, deletechar requires character.delete permission") -- Debug
+print("Character command module: use /charinfo <id> to view character info and /deletechar <id> <characterId> to delete a character") -- Debug
+print("Character command module: ensure you have the necessary permissions to execute these commands") -- Debug
+print("Character command module: initialization complete, commands are ready to use") -- Debug
+print("Character command module: ready to handle incoming character commands") -- Debug
+print("Character command module: all systems operational") -- Debug
+ 

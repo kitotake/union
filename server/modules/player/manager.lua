@@ -54,7 +54,7 @@ RegisterNetEvent("union:player:joined", function()
     local existing = PlayerManager.get(src)
     if existing then
         PlayerManager.logger:warn(("Joueur %d déjà présent — rechargement après restart"):format(src))
-        
+        print("Player " .. src .. " already exists — reloading after restart") -- Debug
         -- FIX ENSURE: sauvegarder la position avant de reset
         if existing.currentCharacter and existing.isSpawned then
             local char = existing.currentCharacter
@@ -66,16 +66,27 @@ RegisterNetEvent("union:player:joined", function()
                     z = char.position.z,
                     heading = char.heading or 0.0,
                 })
-                exports.oxmysql:execute(
-                    "UPDATE characters SET position = ?, health = ?, armor = ?, is_dead = ?, last_played = NOW() WHERE unique_id = ?",
-                    {posJson, char.health or 200, char.armor or 0, char.is_dead or 0, char.unique_id},
-                    function(result)
-                        if result then
-                            PlayerManager.logger:info(("Ensure save OK: %s | pos=%.1f,%.1f"):format(
-                                existing.name, char.position.x, char.position.y))
-                        end
-                    end
-            )
+                print("Ensuring position save for " .. existing.name .. " at pos=" .. posJson)
+print("Ensure save initiated for " .. existing.name)
+print("Database.execute called for ensure save of " .. existing.name)
+
+exports.oxmysql:execute(
+    "UPDATE characters SET position = ?, health = ?, armor = ?, is_dead = ?, last_played = NOW() WHERE unique_id = ?",
+    {posJson, char.health or 200, char.armor or 0, char.is_dead or 0, char.unique_id},
+    function(result)
+        if result then
+            print("Ensure save OK for " .. existing.name)
+            PlayerManager.logger:info(("Ensure save OK: %s | pos=%.1f,%.1f"):format(
+                existing.name,
+                char.position.x,
+                char.position.y
+            ))
+        end
+
+        print("Ensure save result callback completed for " .. existing.name)
+        print("Finished ensure save for " .. existing.name)
+    end
+)
             end
         end
         
@@ -93,8 +104,11 @@ RegisterNetEvent("union:player:joined", function()
         existing:loadFromDatabase(function(success)
             if success then
                 TriggerClientEvent("union:player:loaded", src)
+            print("Player " .. src .. " reloaded successfully after restart") -- Debug
             else
                 DropPlayer(src, "Échec rechargement données après restart")
+                print("Player " .. src .. " failed to reload after restart, dropped") -- Debug
+                print("Failed to reload player " .. src .. " after restart") -- Debug
             end
         end)
         return
@@ -102,18 +116,27 @@ RegisterNetEvent("union:player:joined", function()
     
     local player = PlayerManager.create(src)
     if not player then
+        print("Failed to create player object for source " .. tostring(src)) -- Debug
         PlayerManager.logger:error("Impossible de créer l'objet joueur pour source " .. tostring(src))
+        print("Dropping player " .. tostring(src) .. " due to player object creation failure") -- Debug
+        print("DropPlayer called for " .. tostring(src) .. " due to player object creation failure") -- Debug
+        print("Player " .. tostring(src) .. " dropped due to player object creation failure") -- Debug
         DropPlayer(src, "Échec de l'initialisation des données joueur")
         return
     end
     
     player:loadFromDatabase(function(success)
         if success then
+            print("Player " .. src .. " loaded successfully") -- Debug
             PlayerManager.logger:info("Joueur " .. player.name .. " chargé")
             Auth.Webhooks.playerJoined(src)
+            print("Auth webhook for playerJoined executed for " .. src) -- Debug
+            print("Triggering union:player:loaded for " .. src) -- Debug
             TriggerClientEvent("union:player:loaded", src)
         else
+            print("Failed to load player " .. src .. " from database") -- Debug
             PlayerManager.logger:error("Échec du chargement joueur " .. tostring(src))
+            print("Dropping player " .. src .. " due to load failure") -- Debug
             DropPlayer(src, "Échec du chargement des données")
         end
     end)
@@ -123,18 +146,21 @@ AddEventHandler("playerDropped", function(reason)
     local src    = source
     local player = PlayerManager.get(src)
     if not player then return end
-
+print("Player " .. src .. " dropped with reason: " .. tostring(reason)) -- Debug
     Auth.Webhooks.playerLeft(src, reason)
+print("Auth webhook for playerLeft executed for " .. src .. " with reason: " .. tostring(reason)) -- Debug
     PlayerManager.logger:info("Joueur " .. player.name .. " déconnecté : " .. tostring(reason))
 
     -- Déclencher AVANT remove pour que les listeners aient encore accès au player
     TriggerEvent("union:player:dropping", src, player, reason)
+    print("union:player:dropping event triggered for " .. src .. " with reason: " .. tostring(reason)) -- Debug
 
     -- ─────────────────────────────────────────────────────────────
     -- Helper local : encode proprement une position en JSON
     -- Gère string, table et vector3 sans casser le heading
     -- ─────────────────────────────────────────────────────────────
     local function encodePosition(posData, fallbackHeading)
+        print("Encoding position for player " .. (player.name or "?") .. " with data: " .. tostring(posData)) -- Debug
         if not posData then return nil end
 
         local px, py, pz, hdg
@@ -156,11 +182,20 @@ AddEventHandler("playerDropped", function(reason)
             hdg = fallbackHeading or 0.0
 
         else
+            print("Unknown position data type for player " .. (player.name or "?") .. ": " .. type(posData)) -- Debug
+            PlayerManager.logger:error(("Type de position inconnu pour %s: %s"):format(player.name or "?", type(posData)))
+            print("Failed to encode position for player " .. (player.name or "?") .. " due to unknown data type") -- Debug
+            print("Returning nil for position encoding of player " .. (player.name or "?")) -- Debug
+            print("Position encoding failed for player " .. (player.name or "?") .. " with data: " .. tostring(posData)) -- Debug
+            print("Position encoding completed with failure for player " .. (player.name or "?")) -- Debug
+            print("Finished position encoding for player " .. (player.name or "?") .. " with failure") -- Debug
+            print("Position encoding returned nil for player " .. (player.name or "?")) -- Debug
+            print("Position encoding process finished for player " .. (player.name or "?") .. " with nil result") -- Debug
             return nil
         end
 
         if not px or not py or not pz then return nil end
-
+print("Position components for player " .. (player.name or "?") .. ": x=" .. tostring(px) .. " y=" .. tostring(py) .. " z=" .. tostring(pz) .. " heading=" .. tostring(hdg)) -- Debug
         -- Coordonnées nulles = spawn en cours, pas fiable
         if math.abs(px) < 1.0 and math.abs(py) < 1.0 then return nil end
 
@@ -197,7 +232,10 @@ AddEventHandler("playerDropped", function(reason)
             }, src)
         end
     end
-
+print("Player " .. src .. " drop processing completed with saveData: " .. tostring(saveData)) -- Debug
+print("Proceeding to remove player " .. src .. " from PlayerManager") -- Debug
+print("Current player count before removal: " .. PlayerManager.count()) -- Debug
+print("Removing player " .. src .. " from PlayerManager...") -- Debug
     PlayerManager.remove(src)
 
     -- ─────────────────────────────────────────────────────────────
@@ -205,6 +243,7 @@ AddEventHandler("playerDropped", function(reason)
     -- ─────────────────────────────────────────────────────────────
     if saveData then
         if not saveData.posJson then
+            print("Invalid position for player " .. saveData.name .. ", skipping save") -- Debug
             PlayerManager.logger:warn("Sauvegarde déco ignorée (position invalide) : " .. saveData.name)
             return
         end
@@ -221,9 +260,15 @@ AddEventHandler("playerDropped", function(reason)
             saveData.unique_id,
         }, function(result)
             if result then
+                print("Player " .. saveData.name .. " saved successfully on drop") -- Debug
+                print("Saved data for player " .. saveData.name .. ": health=" .. tostring(saveData.health) .. " armor=" .. tostring(saveData.armor) .. " is_dead=" .. tostring(saveData.is_dead) .. " pos=" .. tostring(saveData.posJson)) -- Debug
                 PlayerManager.logger:info(("Sauvegarde déco OK: %s | HP=%d Armor=%d Dead=%d pos=%s"):format(
                     saveData.name, saveData.health, saveData.armor, saveData.is_dead, saveData.posJson))
             else
+                print("Failed to save player " .. saveData.name .. " on drop") -- Debug
+                print("Save failed for player " .. saveData.name .. " with data: health=" .. tostring(saveData.health) .. " armor=" .. tostring(saveData.armor) .. " is_dead=" .. tostring(saveData.is_dead) .. " pos=" .. tostring(saveData.posJson)) -- Debug
+                print("Player " .. saveData.name .. " save failed on drop") -- Debug
+                print("Save operation completed with failure for player " .. saveData.name .. " on drop") -- Debug
                 PlayerManager.logger:error("Échec sauvegarde déco pour " .. saveData.name)
             end
         end)

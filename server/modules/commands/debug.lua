@@ -99,10 +99,21 @@ RegisterCommand("dbg:db", function(source, args)
 end, false)
 
 RegisterCommand("dbg:pos", function(source)
+
+    
     local src = source
     if not requirePerm(src, "admin.kick") then
         ServerUtils.notifyPlayer(src, "Permission refusée.", "error"); return
     end
+    
+    
+    print   ("Checking permissions for src=" .. tostring(source)) -- Debug
+    print   ("Is console: " .. tostring(isConsole(source))) -- Debug
+    print   ("Has permission: " .. tostring(requirePerm(source, "admin.kick"))) -- Debug
+    print   ("PlayerManager.get: " .. tostring(PlayerManager.get(source))) -- Debug
+
+    
+    
     if isConsole(src) then
         print("^3[DEBUG] Console: utilisez dbg:player <id> pour voir la position d'un joueur^7"); return
     end
