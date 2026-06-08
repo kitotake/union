@@ -77,13 +77,9 @@ end
 function Position.get()
     print("Position.get called, returning last saved position and heading") -- Debug
     return lastSavedPos, lastSavedHeading, positionSaved
-    print("Position.get completed, positionSaved=" .. tostring(positionSaved)) -- Debug
-    printprint("Position.get returning: " .. tostring(lastSavedPos) .. " with heading: " .. tostring(lastSavedHeading)) -- Debug
 end
 
 function Position.setLast(position, heading)
-    print("Position.setLast called with position: " .. tostring(position) .. " and heading: " .. tostring(heading)) -- Debug
-print("Position.setLast called with position: " .. tostring(position) .. " and heading: " .. tostring(heading)) -- Debug
     print("Position.setLast called with position: " .. tostring(position) .. " and heading: " .. tostring(heading)) -- Debug
     -- FIX ENSURE: nil explicitement reset l'état
     if position == nil then

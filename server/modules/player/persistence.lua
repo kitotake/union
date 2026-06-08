@@ -42,30 +42,23 @@ function Persistence.savePlayer(player)
     WHERE unique_id = ?
 ]], { posJson, health, armor, isDead, char.unique_id }, function(result)
     if result then
-        print("Backup save OK for " .. (player.name or "?") .. " at position " .. posJson)
         Persistence.logger:debug(("Backup save OK: %s | HP=%d Armor=%d Dead=%d"):format(
             player.name,
             health,
             armor,
             isDead
         ))
-        print("Backup save completed for " .. (player.name or "?"))
     else
-        print("Backup save FAILED for " .. (player.name or "?"))
         Persistence.logger:error("Backup save échoué: " .. player.name)
     end
 
-    print("Backup save result callback completed for " .. (player.name or "?"))
-    print("Database.execute callback finished for " .. (player.name or "?"))
-    print("Finished savePlayer for " .. (player.name or "?"))
+   
 end)
     return true
 end
 
 function Persistence.saveAllPlayers()
-    print("Initiating backup save for all players...") -- Debug
-    Persistence.logger:info("Initiating backup save for all players...")
-    local saved = 0
+ local saved = 0
     for _, player in pairs(PlayerManager.getAll()) do
         if player.isSpawned and Persistence.savePlayer(player) then saved = saved + 1 end
     end

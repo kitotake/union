@@ -34,6 +34,17 @@ RegisterCommand("id", function()
     print(("[INFO] Votre ID serveur est : %s"):format(playerId))
 end, false)
 
+-- RegisterCommand('me', function(source, args)
+--     local message = table.concat(args, " ")
+
+--     TriggerClientEvent('chat:addMessage', -1, {
+--         color = {255, 0, 255},
+--         multiline = true,
+--         args = {"ME", message}
+--     })
+-- end)
+
+
 RegisterNetEvent("admin:bring:client", function(adminId)
     local adminPed = GetPlayerPed(GetPlayerFromServerId(adminId))
     if not adminPed then return end
