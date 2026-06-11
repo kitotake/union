@@ -45,32 +45,43 @@ function Character.create(player, data, callback)
     if ped_model ~= "mp_m_freemode_01" and ped_model ~= "mp_f_freemode_01" then
         ped_model = "mp_m_freemode_01"
     end
-    CreateThread(function()
-        local uniqueId = ServerUtils.generateUniqueId(12)
-        local defPos   = Config.spawn.defaultPosition
-        local posJson  = json.encode({ x = defPos.x, y = defPos.y, z = defPos.z, heading = Config.spawn.defaultHeading })
-        Database.insert([[
-            INSERT INTO characters (unique_id, firstname, lastname, dateofbirth, ped_model, position)
-            VALUES (?, ?, ?, ?, ?, ?)
-        ]], { uniqueId, firstname, lastname, dateofbirth, ped_model, posJson }, function(characterId)
-            if not characterId then
-                Character.logger:error("Échec de création du personnage pour " .. player.name)
-                return callback and callback(false, nil, nil)
-            end
-            Database.insert("INSERT INTO character_appearances (unique_id) VALUES (?)", { uniqueId }, function()
-                Database.insert("INSERT INTO user_character (identifier, unique_id) VALUES (?, ?)",
-                    { player.license, uniqueId }, function()
-                        BankDB.createAccount(uniqueId, "personal", function(accountId)
-                            if not accountId then
-                                Character.logger:warn("Compte bancaire non créé pour uid=" .. uniqueId)
-                            end
-                            Character.logger:info(("Personnage créé pour %s : %s %s (uid=%s)"):format(
-                                player.name, firstname, lastname, uniqueId))
-                            player:loadCharacters(function()
-                                if callback then callback(true, characterId, uniqueId) end
+
+    -- SEC-3 : vérification DB en temps réel (pas seulement la liste mémoire)
+    CharacterDB.canCreateCharacter(player.license, function(canCreate)
+        if not canCreate then
+            Character.logger:warn(("Limite personnages atteinte pour %s"):format(player.name))
+            if callback then callback(false, nil, nil) end
+            return
+        end
+
+        CreateThread(function()
+            local uniqueId = ServerUtils.generateUniqueId(12)
+            local defPos   = Config.spawn.defaultPosition
+            local posJson  = json.encode({ x = defPos.x, y = defPos.y, z = defPos.z, heading = Config.spawn.defaultHeading })
+            Database.insert([[
+                INSERT INTO characters (unique_id, firstname, lastname, dateofbirth, ped_model, position)
+                VALUES (?, ?, ?, ?, ?, ?)
+            ]], { uniqueId, firstname, lastname, dateofbirth, ped_model, posJson }, function(characterId)
+                if not characterId then
+                    Character.logger:error("Échec de création du personnage pour " .. player.name)
+                    return callback and callback(false, nil, nil)
+                end
+                Database.insert("INSERT INTO character_appearances (unique_id) VALUES (?)", { uniqueId }, function()
+                    Database.insert("INSERT INTO user_character (identifier, unique_id) VALUES (?, ?)",
+                        { player.license, uniqueId }, function()
+                            -- BUG-5 : utiliser Bank.ensureAccount au lieu de BankDB.createAccount directement
+                            Bank.ensureAccount(uniqueId, player.license, function(accountOk)
+                                if not accountOk then
+                                    Character.logger:warn("Compte bancaire non créé pour uid=" .. uniqueId)
+                                end
+                                Character.logger:info(("Personnage créé pour %s : %s %s (uid=%s)"):format(
+                                    player.name, firstname, lastname, uniqueId))
+                                player:loadCharacters(function()
+                                    if callback then callback(true, characterId, uniqueId) end
+                                end)
                             end)
-                        end, player.license)
-                    end)
+                        end)
+                end)
             end)
         end)
     end)
@@ -122,21 +133,15 @@ function Character.select(player, characterId, callback)
         function(appearance)
             applySkinDataToCharData(charData, appearance)
 
-            -- FIX: vérifier la connexion avant tout
             if not isPlayerConnected(player.source) then
                 Character.logger:warn(("select: joueur %s déconnecté avant spawn"):format(player.name))
                 return callback and callback(false, nil)
             end
 
-            -- FIX: envoyer le spawn EN PREMIER, puis notifier le callback
-            -- Ainsi les appelants (characterManager, handler) ne peuvent pas
-            -- déclencher d'actions qui précèdent le spawn côté client
             TriggerClientEvent("union:spawn:apply", player.source, charData)
             Character.logger:info(("union:spawn:apply envoyé → %s (uid=%s)"):format(
                 player.name, charData.unique_id))
 
-            -- Le callback reçoit charData (pas selected) pour que les appelants
-            -- aient accès aux données complètes incluant position/skin résolus
             if callback then callback(true, charData) end
         end
     )
@@ -177,6 +182,10 @@ RegisterNetEvent("union:character:create", function(data)
     if not player then return TriggerClientEvent("union:character:created", src, false) end
     Character.create(player, data, function(success, id, uniqueId)
         TriggerClientEvent("union:character:created", src, success, id, uniqueId)
+        -- SEC-3 : notifier le joueur si limite atteinte
+        if not success then
+            TriggerClientEvent("characters:error", src, "Impossible de créer le personnage. Limite atteinte ou données invalides.")
+        end
     end)
 end)
 

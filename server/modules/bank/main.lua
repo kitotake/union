@@ -2,6 +2,34 @@
 Bank        = {}
 Bank.logger = Logger:child("BANK")
 
+-- SEC-2 : rate limit par joueur/action
+local _bankCooldown = {}
+local BANK_COOLDOWN = 2000 -- ms entre deux opérations bancaires
+
+local function checkCooldown(src, action)
+    local key = tostring(src) .. "_" .. action
+    local now = GetGameTimer()
+    if _bankCooldown[key] and (now - _bankCooldown[key]) < BANK_COOLDOWN then
+        Bank.logger:warn(("Rate limit banque src=%d action=%s"):format(src, action))
+        return false
+    end
+    _bankCooldown[key] = now
+    return true
+end
+
+AddEventHandler("union:player:dropping", function(src)
+    -- Nettoyage cooldowns à la déconnexion
+    local prefix = tostring(src) .. "_"
+    local toDelete = {}
+    for key in pairs(_bankCooldown) do
+        if key:sub(1, #prefix) == prefix then toDelete[#toDelete + 1] = key end
+    end
+    for _, key in ipairs(toDelete) do _bankCooldown[key] = nil end
+end)
+
+-- BUG-5 : guard contre double-création de compte
+local _accountCreating = {}
+
 local _txCounter = 0
 local function nextTxId()
     _txCounter = _txCounter + 1
@@ -90,6 +118,29 @@ function Bank.logTransaction(uniqueId, amount, txType, description, balanceAfter
     end)
 end
 
+-- BUG-5 : guard d'idempotence pour la création de compte
+function Bank.ensureAccount(uniqueId, license, callback)
+    if _accountCreating[uniqueId] then
+        Bank.logger:warn("Création compte en cours pour uid=" .. uniqueId .. " — doublon ignoré")
+        if callback then callback(false) end
+        return
+    end
+    -- Vérifier si le compte existe déjà
+    Database.scalar("SELECT COUNT(*) FROM bank_accounts WHERE unique_id = ? AND type = 'personal'",
+        { uniqueId }, function(count)
+            if count and count > 0 then
+                Bank.logger:debug("Compte déjà existant pour uid=" .. uniqueId)
+                if callback then callback(true) end
+                return
+            end
+            _accountCreating[uniqueId] = true
+            BankDB.createAccount(uniqueId, "personal", function(accountId)
+                _accountCreating[uniqueId] = nil
+                if callback then callback(accountId ~= nil) end
+            end, license)
+        end)
+end
+
 RegisterNetEvent("union:bank:getBalance", function()
     local src    = source
     local player = PlayerManager.get(src)
@@ -101,11 +152,21 @@ RegisterNetEvent("union:bank:getBalance", function()
 end)
 
 RegisterNetEvent("union:bank:deposit", function(amount)
-    local src    = source
+    local src = source
+    -- SEC-2 : rate limit
+    if not checkCooldown(src, "deposit") then
+        TriggerClientEvent("union:bank:depositResult", src, false, 0, 0)
+        return
+    end
     local player = PlayerManager.get(src)
     if not player or not player.currentCharacter then return end
     amount = tonumber(amount)
     if not amount or amount <= 0 then return end
+    -- Limite de montant raisonnable
+    if amount > 1000000 then
+        Bank.logger:warn(("Dépôt suspect src=%d montant=%d"):format(src, amount))
+        return
+    end
     local uid = player.currentCharacter.unique_id
     Bank.deposit(uid, amount, "Dépôt manuel", function(success)
         if not isConnected(src) then return end
@@ -120,11 +181,20 @@ RegisterNetEvent("union:bank:deposit", function(amount)
 end)
 
 RegisterNetEvent("union:bank:withdraw", function(amount)
-    local src    = source
+    local src = source
+    -- SEC-2 : rate limit
+    if not checkCooldown(src, "withdraw") then
+        TriggerClientEvent("union:bank:withdrawResult", src, false, 0, 0)
+        return
+    end
     local player = PlayerManager.get(src)
     if not player or not player.currentCharacter then return end
     amount = tonumber(amount)
     if not amount or amount <= 0 then return end
+    if amount > 1000000 then
+        Bank.logger:warn(("Retrait suspect src=%d montant=%d"):format(src, amount))
+        return
+    end
     local uid = player.currentCharacter.unique_id
     Bank.withdraw(uid, amount, "Retrait manuel", function(success)
         if not isConnected(src) then return end
@@ -139,12 +209,23 @@ RegisterNetEvent("union:bank:withdraw", function(amount)
 end)
 
 RegisterNetEvent("union:bank:transfer", function(targetId, amount)
-    local src    = source
+    local src = source
+    -- SEC-2 : rate limit
+    if not checkCooldown(src, "transfer") then
+        TriggerClientEvent("union:bank:transferResult", src, false, 0)
+        return
+    end
     local player = PlayerManager.get(src)
     local target = PlayerManager.get(targetId)
     if not player or not player.currentCharacter then return end
     amount = tonumber(amount)
     if not amount or amount <= 0 then return end
+    if amount > 1000000 then return end
+    -- Empêcher auto-transfert
+    if src == targetId then
+        TriggerClientEvent("union:bank:transferResult", src, false, amount)
+        return
+    end
     local fromUid  = player.currentCharacter.unique_id
     local fromName = player.name
     if not target or not target.currentCharacter then

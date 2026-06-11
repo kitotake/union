@@ -16,13 +16,21 @@ end
 RegisterNetEvent("union:player:loaded")
 
 -- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- FIX CRITIQUE: seul RegisterNetEvent("union:spawn:apply") de tout le côté client
+-- Seul RegisterNetEvent("union:spawn:apply") de tout le côté client
 -- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 local spawnInProgress     = false
 local currentSpawnSession = 0
 
 local function resetSpawnGuard()
     spawnInProgress = false
+end
+
+-- BUG-6 : remettre la NUI de sélection en cas de timeout spawn
+local function resetToCharacterSelection()
+    resetSpawnGuard()
+    Logger:warn("Timeout spawn — retour à la sélection de personnage")
+    -- Ré-demander la liste de personnages au serveur pour rouvrir la NUI
+    TriggerServerEvent("union:spawn:requestInitial")
 end
 
 local function startSpawnTimeout(seconds, sessionId)
@@ -33,8 +41,9 @@ local function startSpawnTimeout(seconds, sessionId)
             if currentSpawnSession ~= sessionId then return end
         end
         if currentSpawnSession == sessionId and spawnInProgress then
-            Logger:warn(("Spawn timeout (%ds) — reset guard [session %d]"):format(seconds, sessionId))
-            resetSpawnGuard()
+            Logger:warn(("Spawn timeout (%ds) [session %d]"):format(seconds, sessionId))
+            -- BUG-6 : au lieu de juste reset le guard, on remet le joueur en état de sélectionner
+            resetToCharacterSelection()
         end
     end)
 end
@@ -247,4 +256,3 @@ CreateThread(function()
     Logger:info("Client ready — requesting initial spawn")
     Spawn.initialize()
 end)
-

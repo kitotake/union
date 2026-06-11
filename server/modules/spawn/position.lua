@@ -4,13 +4,30 @@ SpawnPosition.logger = Logger:child("SPAWN:POSITION")
 
 local _lastSave    = {}
 local MIN_INTERVAL = 3000
-print("SpawnPosition module loaded") -- Debug initial load
+
+-- SEC-1 : limites de la carte GTA V
+local MAP_LIMIT_XY = 5000
+local MAP_LIMIT_Z_MIN = -200
+local MAP_LIMIT_Z_MAX = 2000
+
+local function validateCoords(position)
+    if not position then return false end
+    if math.abs(position.x) > MAP_LIMIT_XY then return false end
+    if math.abs(position.y) > MAP_LIMIT_XY then return false end
+    if position.z < MAP_LIMIT_Z_MIN or position.z > MAP_LIMIT_Z_MAX then return false end
+    return true
+end
 
 function SpawnPosition.save(player, position, heading, health, armor, isDead)
-    print("Saving position for " .. (player.name or "?") .. " at " .. json.encode(position))
     if not player or not player.currentCharacter then return false end
     if not position then
         SpawnPosition.logger:warn("Position nil pour " .. (player.name or "?")); return false
+    end
+    -- SEC-1 : validation des coordonnées
+    if not validateCoords(position) then
+        SpawnPosition.logger:warn(("Coords hors-limites ignorées pour %s : x=%.1f y=%.1f z=%.1f"):format(
+            player.name or "?", position.x or 0, position.y or 0, position.z or 0))
+        return false
     end
     local posJson = json.encode({ x = position.x, y = position.y, z = position.z, heading = heading or 0.0 })
     player.currentCharacter.position = { x = position.x, y = position.y, z = position.z, heading = heading or 0.0 }
@@ -32,12 +49,10 @@ function SpawnPosition.save(player, position, heading, health, armor, isDead)
             SpawnPosition.logger:error("Échec save pour " .. player.name)
         end
     end)
-    print("Position save initiated for " .. (player.name or "?"))
     return true
 end
 
 function SpawnPosition.load(uniqueId, callback)
-    print("Loading position for uid=" .. tostring(uniqueId))
     Database.fetchOne("SELECT position FROM characters WHERE unique_id = ?", { uniqueId }, function(result)
         if result and result.position then
             local ok, p = pcall(json.decode, result.position)
@@ -47,36 +62,28 @@ function SpawnPosition.load(uniqueId, callback)
             end
         end
         if callback then callback(Config.spawn.defaultPosition, Config.spawn.defaultHeading) end
-    print("Position load initiated for uid=" .. tostring(uniqueId))
     end)
 end
 
 function SpawnPosition.isValid(position)
-    print("Validating position: " .. tostring(position))
-
-    if not position then
-        return false
-    end
-
-    if position.x == 0 and position.y == 0 and position.z == 0 then
-        return false
-    end
-
-    print("Position validation completed for: " .. tostring(position))
-    return true
+    if not position then return false end
+    if position.x == 0 and position.y == 0 and position.z == 0 then return false end
+    return validateCoords(position)
 end
 
--- Remplacer le RegisterNetEvent("union:position:save") existant par :
 RegisterNetEvent("union:position:save", function(position, heading, health, armor, isDead)
-    print("Received position save event from src=" .. tostring(source) .. " pos=" .. json.encode(position) .. " heading=" .. tostring(heading))
     local src = source
+    -- SEC-1 : validation immédiate avant tout traitement
+    if not position or not validateCoords(position) then
+        SpawnPosition.logger:warn(("Coords invalides/hors-limites reçues de src=%d"):format(src))
+        return
+    end
     local now = GetGameTimer()
     if _lastSave[src] and (now - _lastSave[src]) < MIN_INTERVAL then return end
     _lastSave[src] = now
     local player = PlayerManager.get(src)
-    if not player or not player.currentCharacter or not position then return end
-
-    -- FIX: stocker heading dans la table position pour que playerDropped l'encode correctement
+    if not player or not player.currentCharacter then return end
+    -- BUG-2 : stocker heading dans la table position (pas perdu si vector3 ailleurs)
     player.currentCharacter.position = {
         x       = position.x,
         y       = position.y,
@@ -84,15 +91,12 @@ RegisterNetEvent("union:position:save", function(position, heading, health, armo
         heading = heading or 0.0,
     }
     player.currentCharacter.heading = heading or 0.0
-
     SpawnPosition.save(player, position, heading, health, armor, isDead)
     TriggerClientEvent("union:position:loaded", src, position, heading)
-    print("Position save event processed for src=" .. tostring(src))
 end)
 
 AddEventHandler("union:player:dropping", function(src)
     _lastSave[src] = nil
-    print("Player dropping event processed for src=" .. tostring(src))
 end)
 
 return SpawnPosition

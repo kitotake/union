@@ -1,5 +1,4 @@
 -- server/modules/player/status/manager.lua
-print("[STATUS] Manager chargé")
 StatusManager          = {}
 StatusManager.logger   = Logger:child("STATUS:MANAGER")
 StatusManager.cache    = {}
@@ -116,15 +115,36 @@ function StatusManager.flushPendingSends()
     end
 end
 
+-- SEC-4 : sync client serveur-autoritaire
+-- Le client ne peut qu'informer le serveur d'une DIMINUTION (ex: il mange, stress)
+-- Le serveur n'accepte jamais une valeur supérieure à ce qu'il a en cache
+-- (empêche le cheat "je me remets à 100 en permanence")
 RegisterNetEvent("union:status:sync", function(clientStatus)
     local src = source
     if not clientStatus then return end
     local s = StatusManager.cache[src]
     if not s then return end
+
+    -- Valider que la source est bien un joueur spawné
+    local player = PlayerManager.get(src)
+    if not player or not player.isSpawned then return end
+
     for stat in pairs(ALLOWED_STATS) do
-        if clientStatus[stat] ~= nil then s[stat] = clamp(clientStatus[stat]) end
+        if clientStatus[stat] ~= nil then
+            local clientVal = clamp(clientStatus[stat])
+            local serverVal = s[stat] or 0
+            -- SEC-4 : on n'accepte que les valeurs <= valeur serveur + tolérance de 5 points
+            -- (tolérance pour compenser la latence réseau légère)
+            if clientVal <= serverVal + 5 then
+                s[stat] = clientVal
+                s._dirty = true
+            else
+                -- Le client essaie d'augmenter ses stats — on log et on ignore
+                StatusManager.logger:warn(("Sync suspect src=%d stat=%s client=%d server=%d"):format(
+                    src, stat, clientVal, serverVal))
+            end
+        end
     end
-    s._dirty = true
 end)
 
 AddEventHandler("union:player:spawned", function(src, character)
@@ -144,7 +164,6 @@ end)
 exports("GetPlayerStatus", StatusManager.get)
 exports("SetPlayerStat",   StatusManager.setAndSend)
 exports("AddPlayerStat",   StatusManager.add)
-
 
 exports("SetStat", function(src, stat, value)
     StatusManager.setAndSend(src, stat, value)
