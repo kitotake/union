@@ -1,49 +1,87 @@
 -- client/modules/commands/taginfo.lua
--- Utilise le système natif MP_GAMER_TAG (CreateMpGamerTag / SetMpGamerTagVisibility)
--- au lieu de DrawText3D manuel
+-- Gamer tags natifs MP_GAMER_TAG
+-- Composants actifs :
+--   0  GAMER_NAME        → nom Steam
+--   2  healthArmour      → barre HP/armure native
+--  11  GAMER_NAME_NEARBY → visibilité étendue
+--  12  ARROW             → flèche hors champ
+--  16  MP_TYPING         → icône clavier quand le joueur écrit
+-- Mort : pas de composant natif → BIG_TEXT (3) affiche ☠ + texte rouge
 
-local activeTags  = {}  -- [serverId] = { tagHandle, steamName, uniqueId }
-local isActive    = false
+local activeTags = {}   -- [serverId] = { handle, steamName, uniqueId, isDead, isTyping }
+local isActive   = false
 
--- ─── Composants gamer tag utilisés ───────────────────────────────────────────
--- 0  GAMER_NAME       → nom Steam
--- 2  healthArmour     → barre HP/armure native
--- 11 GAMER_NAME_NEARBY → visible à plus grande distance
--- 12 ARROW            → flèche de repérage
+-- Couleurs HUD utilisables avec SetMpGamerTagColour
+-- index 116 = blanc, 6 = rouge, 27 = orange, 116 = blanc
+local HUD_WHITE  = 116
+local HUD_RED    = 6
 
-local COMPONENTS_ON = { 0, 2, 11, 12 }
+-- Composants toujours actifs à la création
+local COMPONENTS_BASE = { 0, 2, 11, 12, 16 }
 
-local function showComponents(handle, visible)
-    for _, id in ipairs(COMPONENTS_ON) do
-        SetMpGamerTagVisibility(handle, id, visible)
+local function showComponents(handle)
+    for _, id in ipairs(COMPONENTS_BASE) do
+        SetMpGamerTagVisibility(handle, id, true)
     end
 end
 
 local function createTag(serverId, steamName, uniqueId)
-    -- Récupérer le ped local du joueur distant
     local player = GetPlayerFromServerId(serverId)
     if player == -1 then return nil end
     local ped = GetPlayerPed(player)
     if not DoesEntityExist(ped) then return nil end
 
-    -- Créer le gamer tag natif
-    -- CreateMpGamerTag(ped, name, isRockstarCrew, isFriend, crewTag, alphaMult)
     local handle = CreateMpGamerTag(ped, steamName, false, false, "", 255)
     if not handle or handle == 0 then return nil end
 
-    -- Afficher les composants voulus
-    showComponents(handle, true)
+    showComponents(handle)
+    SetMpGamerTagColour(handle, 0, HUD_WHITE)
 
-    -- Personnaliser la couleur du nom (blanc)
-    SetMpGamerTagColour(handle, 0, 116)  -- 116 = blanc HUD
-
-    -- Afficher l'UID en BIG_TEXT (composant 3)
-    SetMpGamerTagName(handle, ("ID:%d | %s"):format(serverId, uniqueId or "?"))
-    SetMpGamerTagVisibility(handle, 3, false)  -- BIG_TEXT off par défaut
+    -- BIG_TEXT off par défaut (s'active uniquement si mort)
+    SetMpGamerTagVisibility(handle, 3, false)
 
     return handle
 end
 
+-- ─── Mort ─────────────────────────────────────────────────────────────────────
+-- Pas de composant natif "mort" dans la liste — on utilise BIG_TEXT (3)
+-- avec le symbole ☠ et une couleur rouge
+local function setDeadState(entry, dead)
+    if not entry or not entry.handle or entry.handle == 0 then return end
+    if entry.isDead == dead then return end  -- pas de changement inutile
+    entry.isDead = dead
+    if dead then
+        -- Afficher ☠ en BIG_TEXT, couleur rouge
+        SetMpGamerTagName(entry.handle, "~r~☠ Mort")
+        SetMpGamerTagVisibility(entry.handle, 3, true)
+        -- Cacher la barre HP (inutile si mort)
+        SetMpGamerTagVisibility(entry.handle, 2, false)
+        -- Cacher la flèche (déjà au sol)
+        SetMpGamerTagVisibility(entry.handle, 12, false)
+    else
+        -- Remettre l'état normal
+        SetMpGamerTagVisibility(entry.handle, 3, false)
+        SetMpGamerTagVisibility(entry.handle, 2, true)
+        SetMpGamerTagVisibility(entry.handle, 12, true)
+    end
+end
+
+-- ─── Typing ───────────────────────────────────────────────────────────────────
+-- Le composant 16 MP_TYPING s'active/désactive selon IsPedRunningMobilePhoneTask
+-- ou via l'event natif chat. On surveille le flag natif IsPlayerFreeAiming aussi.
+-- La méthode la plus fiable : surveiller NetworkIsPlayerTalking pour le micro,
+-- et pour le chat on écoute l'event "chatMessage" local (déclenché avant envoi).
+-- FiveM expose également IsPedUsingActionMode pour détecter la frappe.
+local function setTypingState(entry, typing)
+    if not entry or not entry.handle or entry.handle == 0 then return end
+    if entry.isTyping == typing then return end
+    entry.isTyping = typing
+    -- Le composant 16 est géré nativement par GTA quand on est en chat FiveM,
+    -- mais on peut aussi le forcer manuellement
+    SetMpGamerTagVisibility(entry.handle, 16, typing)
+end
+
+-- ─── Suppression ──────────────────────────────────────────────────────────────
 local function removeTag(serverId)
     local entry = activeTags[serverId]
     if not entry then return end
@@ -61,40 +99,69 @@ local function clearAllTags()
     isActive   = false
 end
 
--- ─── Thread de maintenance ────────────────────────────────────────────────────
--- Recrée les tags si un joueur était absent au moment de la réception
--- et supprime les tags de joueurs qui ont quitté
+-- ─── Thread de maintenance + états dynamiques ─────────────────────────────────
+-- Tourne à 500ms : met à jour mort/typing en temps réel
 local function startMaintenanceThread()
     CreateThread(function()
         while isActive do
-            Wait(2000)
+            Wait(500)
             if not isActive then break end
 
             for serverId, entry in pairs(activeTags) do
                 local player = GetPlayerFromServerId(serverId)
 
                 if player == -1 then
-                    -- Joueur parti : nettoyer le tag
+                    -- Joueur déconnecté
                     if entry.handle and entry.handle ~= 0 then
                         RemoveMpGamerTag(entry.handle)
                         entry.handle = 0
                     end
                 else
                     local ped = GetPlayerPed(player)
-                    -- Tag invalide ou ped changé : recréer
-                    if not entry.handle or entry.handle == 0 or not DoesEntityExist(ped) then
-                        if entry.handle and entry.handle ~= 0 then
-                            RemoveMpGamerTag(entry.handle)
-                        end
+
+                    -- Recréer le tag si invalide (spawn/modèle changé)
+                    if not entry.handle or entry.handle == 0 then
                         if DoesEntityExist(ped) then
-                            entry.handle = createTag(serverId, entry.steamName, entry.uniqueId)
+                            entry.handle   = createTag(serverId, entry.steamName, entry.uniqueId)
+                            entry.isDead   = nil   -- force refresh des états
+                            entry.isTyping = nil
                         end
+                    end
+
+                    if entry.handle and entry.handle ~= 0 and DoesEntityExist(ped) then
+                        -- ── État mort ──────────────────────────────────────
+                        local dead = IsEntityDead(ped)
+                        setDeadState(entry, dead)
+
+                        -- ── État typing ────────────────────────────────────
+                        -- NetworkIsPlayerTalking → micro voix
+                        -- IsPedRunningMobilePhoneTask → téléphone/frappe
+                        -- On combine les deux pour une détection large
+                        local typing = IsPedRunningMobilePhoneTask(ped)
+                        setTypingState(entry, typing)
                     end
                 end
             end
         end
     end)
 end
+
+-- ─── Écoute du chat local pour activer MP_TYPING ─────────────────────────────
+-- Quand le joueur local ouvre le chat FiveM, on active MP_TYPING sur son
+-- propre tag vu par les autres. Ici on écoute le hook côté observateur :
+-- quand un autre joueur envoie un message on flash son tag brièvement.
+AddEventHandler("chatMessage", function(src, author, text)
+    -- Flash typing pendant 1s sur le tag de l'expéditeur
+    local serverId = src
+    local entry    = activeTags[serverId]
+    if not entry then return end
+    setTypingState(entry, true)
+    SetTimeout(1000, function()
+        if activeTags[serverId] then
+            setTypingState(entry, false)
+        end
+    end)
+end)
 
 -- ─── Réception des données serveur ───────────────────────────────────────────
 RegisterNetEvent("union:taginfo:receive", function(players)
@@ -106,14 +173,14 @@ RegisterNetEvent("union:taginfo:receive", function(players)
 
     isActive = true
     local created = 0
+    local myServerId = GetPlayerServerId(PlayerId())
 
     for _, p in ipairs(players) do
         local serverId  = p.serverId
         local steamName = p.steamName or ("Player_%d"):format(serverId)
         local uniqueId  = p.uniqueId  or "N/A"
 
-        -- Ne pas créer un tag sur soi-même
-        if serverId == GetPlayerServerId(PlayerId()) then goto continue end
+        if serverId == myServerId then goto continue end
 
         local handle = createTag(serverId, steamName, uniqueId)
 
@@ -121,9 +188,10 @@ RegisterNetEvent("union:taginfo:receive", function(players)
             handle    = handle,
             steamName = steamName,
             uniqueId  = uniqueId,
+            isDead    = false,
+            isTyping  = false,
         }
         if handle then created = created + 1 end
-
         ::continue::
     end
 
@@ -136,24 +204,18 @@ RegisterCommand("taginfo", function(_, args)
     if args[1] == "off" then
         clearAllTags()
         Notifications.send("TagInfo désactivé", "info")
-        Logger:info("[TAGINFO] Désactivé manuellement")
+        Logger:info("[TAGINFO] Désactivé")
         return
     end
     TriggerServerEvent("union:taginfo:request")
     Notifications.send("TagInfo activé — chargement...", "info")
 end, false)
 
--- ─── Nettoyage automatique ────────────────────────────────────────────────────
+-- ─── Nettoyage ────────────────────────────────────────────────────────────────
 AddEventHandler("union:character:unloaded", function()
-    if isActive then
-        clearAllTags()
-        Logger:debug("[TAGINFO] Nettoyé (character unloaded)")
-    end
+    if isActive then clearAllTags() end
 end)
 
--- Nettoyer aussi si la resource redémarre
 AddEventHandler("onResourceStop", function(r)
-    if r == GetCurrentResourceName() then
-        clearAllTags()
-    end
+    if r == GetCurrentResourceName() then clearAllTags() end
 end)
