@@ -1,4 +1,0 @@
--- client/modules/vehicle/commands.lua
--- FIX: Ce fichier est intentionnellement vide.
--- Les commandes véhicules sont dans client/modules/commands/vehicle.lua
--- pour éviter les doublons.

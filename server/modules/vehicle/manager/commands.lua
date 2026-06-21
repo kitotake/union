@@ -1,0 +1,2 @@
+-- server/modules/vehicle/manager/commands.lua
+-- (vide — les commandes véhicule admin sont dans server/modules/commands/admin.lua)

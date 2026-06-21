@@ -102,12 +102,29 @@ AddEventHandler("union:player:apparence", function(src)
     if not player or not player.currentCharacter then return end
     doApplyAppearance(src, player.currentCharacter)
 end)
-AddEventHandler("union:player:spawned", function(src, character)
-    if not src or not character then return end
-    SetTimeout(600, function()
-        if isConnected(src) then doApplyAppearance(src, character) end
-    end)
-end)
+
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- FIX PERF (chargement perso lent) : on NE relance PLUS automatiquement un
+-- fetch DB + kt_appearance:apply à chaque union:player:spawned.
+--
+-- Avant : ce handler refaisait une 2e requête vers character_appearances
+-- (la même table) ET réappliquait l'apparence côté client après un délai fixe
+-- de 600ms, alors que Character.select() (server/modules/character/main.lua)
+-- a DÉJÀ lu skin_data/face_features/tattoos et les a fusionnés dans charData
+-- envoyé via union:spawn:apply — apparence déjà appliquée côté client par
+-- ApplyPreview dans client/modules/spawn/handler.lua (section "4. APPARENCE").
+--
+-- Résultat avant : double lecture DB + double application + 600ms de latence
+-- artificielle perçue à chaque spawn, pour rien.
+--
+-- Le seul cas légitime de re-fetch après spawn est déjà couvert : si
+-- Bridge.Character n'était pas disponible côté client au moment du spawn,
+-- le client retombe sur le fallback (modèle de base) ET redemande lui-même
+-- l'apparence depuis la BDD via TriggerServerEvent("union:player:apparence")
+-- (cf. point "10. APPARENCE depuis DB si kt_character indispo" du handler
+-- client). Ce cas est géré par le RegisterNetEvent("union:player:apparence")
+-- juste au-dessus — donc rien n'est perdu.
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 local function doUpdateAppearance(src, data)
     if not src or not data then return end
