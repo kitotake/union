@@ -21,7 +21,15 @@ RegisterCommand("delchar", function(source, args)
     Character.delete(id)
 end, false)
 
-RegisterCommand("charinfo", function()
+-- FIX : renommé "charinfo" → "mycharinfo".
+-- Il collisionnait avec la commande serveur "/charinfo <id>" (admin,
+-- server/modules/commands/manager/character.lua). Le client intercepte
+-- toujours en premier une commande de même nom : taper "/charinfo 5" dans
+-- le chat exécutait systématiquement CETTE version (infos du joueur
+-- lui-même), et la commande admin n'était atteignable que depuis la
+-- console serveur. Avec ce renommage, "/charinfo <id>" devient enfin
+-- utilisable en jeu par un admin.
+RegisterCommand("mycharinfo", function()
     local char = Client.currentCharacter
     if char then
         Notifications.send(

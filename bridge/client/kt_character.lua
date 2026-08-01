@@ -5,11 +5,17 @@ Bridge.register("kt_character", Bridge.Character)
 function Bridge.Character.applyAppearance(charData)
     if not charData then return false end
     if not Bridge.Character:isAvailable() then return false end
+
+    -- FIX : "ApplyPreview" n'est pas un export de kt_character.
+    -- L'export réel pour appliquer une apparence sur le ped du joueur
+    -- (et non sur un ped de preview) est "Appearance_Apply".
+    charData.gender = charData.gender or charData.ped_model
+
     local ok, err = pcall(function()
-        exports["kt_character"]:ApplyPreview(charData)
+        exports["kt_character"]:Appearance_Apply(charData)
     end)
     if not ok then
-        print(("^1[BRIDGE:kt_character] ApplyPreview échoué : %s^7"):format(tostring(err)))
+        print(("^1[BRIDGE:kt_character] Appearance_Apply échoué : %s^7"):format(tostring(err)))
         return false
     end
     return true

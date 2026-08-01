@@ -28,7 +28,7 @@ function ServerUtils.generateUniqueId(length)
     local chars = "0123456789"
     local maxAttempts = 10
     for attempt = 1, maxAttempts do
-        local id = "chr_"
+        local id = ""
         for _ = 1, length do
             local rand = math.random(#chars)
             id = id .. chars:sub(rand, rand)
@@ -42,7 +42,7 @@ function ServerUtils.generateUniqueId(length)
         end
         Logger:warn(("generateUniqueId: collision sur %s (tentative %d/%d)"):format(id, attempt, maxAttempts))
     end
-    local fallback = "chr_" .. tostring(os.time()) .. tostring(math.random(1000, 9999))
+    local fallback = "" .. tostring(os.time()) .. tostring(math.random(1000, 9999))
     Logger:error("generateUniqueId: fallback utilisé — " .. fallback)
     return fallback
 end

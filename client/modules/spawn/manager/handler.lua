@@ -1,4 +1,4 @@
--- client/modules/spawn/handler.lua
+-- client/modules/spawn/manager/handler.lua
 
 Spawn.Handler = {}
 
@@ -141,13 +141,27 @@ RegisterNetEvent("union:spawn:apply", function(characterData)
             Logger:info(("kt_character devenu disponible après %dms d'attente"):format(waitedMs))
         end
         if Bridge.Character:isAvailable() then
+            -- FIX : "ApplyPreview" n'existe pas dans les exports kt_character
+            -- (cf kt_character/client/api/exports.lua) — cet appel échouait
+            -- SYSTÉMATIQUEMENT, donc chaque spawn retombait sur le fallback
+            -- "modèle de base" sans aucune apparence custom.
+            -- Le bon export, qui applique réellement sur le ped du joueur
+            -- (et pas sur un ped de preview), s'appelle "Appearance_Apply".
+            --
+            -- FIX gender : characterData n'a jamais de champ "gender" rempli
+            -- par le serveur (seulement "ped_model"). Ped.ApplyFullAppearance
+            -- attend "gender" ("f"/"mp_f_freemode_01"/...) pour choisir le bon
+            -- modèle de tête/squelette. Sans ce mapping, tout le monde serait
+            -- traité comme un personnage masculin par défaut.
+            characterData.gender = characterData.gender or characterData.ped_model
+
             local ok, err = pcall(function()
-                exports["kt_character"]:ApplyPreview(characterData)
+                exports["kt_character"]:Appearance_Apply(characterData)
             end)
             if ok then
                 Logger:info("Skin du personnage chargé avec succès")
             else
-                Logger:warn("ApplyPreview échoué : " .. tostring(err) .. " — fallback")
+                Logger:warn("Appearance_Apply échoué : " .. tostring(err) .. " — fallback")
                 Bridge.Character._applyFallback(characterData)
             end
         else

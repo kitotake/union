@@ -103,6 +103,27 @@ CREATE TABLE IF NOT EXISTS `character_outfits` (
     CONSTRAINT `fk_outfit_char` FOREIGN KEY (`unique_id`) REFERENCES `characters` (`unique_id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- ============================================================
+-- MIGRATION : character_outfits — ajoute la UNIQUE KEY manquante
+-- À exécuter UNE SEULE FOIS.
+-- Si tu vois "Duplicate key name 'uniq_outfit_name'" sur le ALTER,
+-- c'est que le schéma kt_character/character.sql était déjà en place
+-- (la clé existe déjà) → rien à faire, c'est normal.
+-- ============================================================
+
+-- 1) Dédoublonner : ne garder que la ligne la plus récente par
+--    (unique_id, name) — toutes les autres sont des doublons générés
+--    par le bug (pas de UNIQUE KEY = jamais d'UPDATE, toujours un INSERT).
+DELETE t1 FROM character_outfits t1
+INNER JOIN character_outfits t2
+    ON t1.unique_id = t2.unique_id
+   AND t1.name      = t2.name
+   AND t1.id        < t2.id;
+
+-- 2) Ajouter la contrainte qui manquait.
+ALTER TABLE `character_outfits`
+    ADD UNIQUE KEY `uniq_outfit_name` (`unique_id`, `name`);
+
 CREATE TABLE IF NOT EXISTS `owned_vehicles` (
     `id`            INT UNSIGNED AUTO_INCREMENT,
     `plate`         VARCHAR(12) NOT NULL,

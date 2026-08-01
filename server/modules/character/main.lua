@@ -19,17 +19,33 @@ local function resolveModel(selected)
     return selected.ped_model or "mp_m_freemode_01"
 end
 
+-- FIX : faceFeatures et tattoos sont stockés dans leurs propres colonnes
+-- (character_appearances.face_features / .tattoos), PAS dans skin_data.
+-- L'ancienne version ne lisait que "appearance.skin_data" et ignorait donc
+-- toujours faceFeatures/tattoos, même quand ils étaient bien en base.
 local function applySkinDataToCharData(charData, appearance)
-    if not (appearance and appearance.skin_data) then return end
-    local ok, skin = pcall(json.decode, appearance.skin_data)
-    if not (ok and type(skin) == "table") then return end
-    if type(skin.hair)         == "table" then charData.hair         = skin.hair         end
-    if type(skin.headBlend)    == "table" then charData.headBlend    = skin.headBlend    end
-    if type(skin.faceFeatures) == "table" then charData.faceFeatures = skin.faceFeatures end
-    if type(skin.headOverlays) == "table" then charData.headOverlays = skin.headOverlays end
-    if type(skin.components)   == "table" then charData.components   = skin.components   end
-    if type(skin.props)        == "table" then charData.props        = skin.props        end
-    if type(skin.tattoos)      == "table" then charData.tattoos      = skin.tattoos      end
+    if not appearance then return end
+
+    if appearance.skin_data then
+        local ok, skin = pcall(json.decode, appearance.skin_data)
+        if ok and type(skin) == "table" then
+            if type(skin.hair)         == "table" then charData.hair         = skin.hair         end
+            if type(skin.headBlend)    == "table" then charData.headBlend    = skin.headBlend    end
+            if type(skin.headOverlays) == "table" then charData.headOverlays = skin.headOverlays end
+            if type(skin.components)   == "table" then charData.components   = skin.components   end
+            if type(skin.props)        == "table" then charData.props        = skin.props        end
+        end
+    end
+
+    if appearance.face_features then
+        local ok, ff = pcall(json.decode, appearance.face_features)
+        if ok and type(ff) == "table" then charData.faceFeatures = ff end
+    end
+
+    if appearance.tattoos then
+        local ok, tt = pcall(json.decode, appearance.tattoos)
+        if ok and type(tt) == "table" then charData.tattoos = tt end
+    end
 end
 
 function Character.create(player, data, callback)
@@ -58,6 +74,13 @@ function Character.create(player, data, callback)
             local uniqueId = ServerUtils.generateUniqueId(12)
             local defPos   = Config.spawn.defaultPosition
             local posJson  = json.encode({ x = defPos.x, y = defPos.y, z = defPos.z, heading = Config.spawn.defaultHeading })
+
+            -- FIX : "dateStr" n'était jamais défini (variable fantôme, jamais
+            -- déclarée dans cette fonction) → la colonne dateofbirth (NOT NULL)
+            -- recevait NULL et l'INSERT échouait à CHAQUE création de
+            -- personnage, quel que soit le flux emprunté (union natif ou
+            -- kt_character). Remplacé par la variable réellement validée :
+            -- "dateofbirth".
             Database.insert([[
                 INSERT INTO characters (unique_id, firstname, lastname, dateofbirth, ped_model, position)
                 VALUES (?, ?, ?, ?, ?, ?)
@@ -66,22 +89,42 @@ function Character.create(player, data, callback)
                     Character.logger:error("Échec de création du personnage pour " .. player.name)
                     return callback and callback(false, nil, nil)
                 end
-                Database.insert("INSERT INTO character_appearances (unique_id) VALUES (?)", { uniqueId }, function()
-                    Database.insert("INSERT INTO user_character (identifier, unique_id) VALUES (?, ?)",
-                        { player.license, uniqueId }, function()
-                            -- BUG-5 : utiliser Bank.ensureAccount au lieu de BankDB.createAccount directement
-                            Bank.ensureAccount(uniqueId, player.license, function(accountOk)
-                                if not accountOk then
-                                    Character.logger:warn("Compte bancaire non créé pour uid=" .. uniqueId)
-                                end
-                                Character.logger:info(("Personnage créé pour %s : %s %s (uid=%s)"):format(
-                                    player.name, firstname, lastname, uniqueId))
-                                player:loadCharacters(function()
-                                    if callback then callback(true, characterId, uniqueId) end
+
+                -- FIX : on persiste désormais l'apparence choisie par le joueur
+                -- (kt_creation envoie hair/headBlend/headOverlays/components/
+                -- props/faceFeatures/tattoos). Avant, seule une ligne vide
+                -- était insérée et tout le travail du wizard était jeté.
+                local skinData = json.encode({
+                    ped_model    = ped_model,
+                    hair         = data.hair         or {},
+                    headBlend    = data.headBlend    or {},
+                    headOverlays = data.headOverlays or {},
+                    components   = data.components   or {},
+                    props        = data.props        or {},
+                })
+                local faceFeaturesJson = json.encode(data.faceFeatures or {})
+                local tattoosJson      = json.encode(data.tattoos      or {})
+
+                Database.insert(
+                    "INSERT INTO character_appearances (unique_id, skin_data, face_features, tattoos) VALUES (?, ?, ?, ?)",
+                    { uniqueId, skinData, faceFeaturesJson, tattoosJson },
+                    function()
+                        Database.insert("INSERT INTO user_character (identifier, unique_id) VALUES (?, ?)",
+                            { player.license, uniqueId }, function()
+                                -- BUG-5 : utiliser Bank.ensureAccount au lieu de BankDB.createAccount directement
+                                Bank.ensureAccount(uniqueId, player.license, function(accountOk)
+                                    if not accountOk then
+                                        Character.logger:warn("Compte bancaire non créé pour uid=" .. uniqueId)
+                                    end
+                                    Character.logger:info(("Personnage créé pour %s : %s %s (uid=%s)"):format(
+                                        player.name, firstname, lastname, uniqueId))
+                                    player:loadCharacters(function()
+                                        if callback then callback(true, characterId, uniqueId) end
+                                    end)
                                 end)
                             end)
-                        end)
-                end)
+                    end
+                )
             end)
         end)
     end)
@@ -127,8 +170,10 @@ function Character.select(player, characterId, callback)
         dateofbirth = selected.dateofbirth,
     }
 
+    -- FIX : on sélectionne aussi face_features et tattoos, pas seulement
+    -- skin_data, sinon visage/tatouages ne sont jamais réappliqués au spawn.
     Database.fetchOne(
-        "SELECT skin_data FROM character_appearances WHERE unique_id = ?",
+        "SELECT skin_data, face_features, tattoos FROM character_appearances WHERE unique_id = ?",
         { selected.unique_id },
         function(appearance)
             applySkinDataToCharData(charData, appearance)
