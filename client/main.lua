@@ -14,16 +14,8 @@ CreateThread(function()
     TriggerEvent("union:client:ready")
 end)
 
-exports("GetLogger", function(tag)
-    return Logger:child(tag)
-end)
-
-exports("GetConfig", function()
-    return Config
-end)
-
-exports("Notify", function(message, type, duration)
-    Notifications.send(message, type, duration)
-end)
+-- NOTE: GetLogger / GetConfig / Notify sont exportés dans
+-- client/modules/bridge/manager/exports.lua (source unique de vérité).
+-- Ne pas les redéclarer ici pour éviter la duplication silencieuse.
 
 Logger:info("Union Framework client initialized")
