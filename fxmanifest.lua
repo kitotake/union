@@ -77,7 +77,7 @@ client_scripts {
     'client/modules/commands/manager/bank.lua',
     'client/modules/commands/manager/vehicle.lua',
 
-    -- ⑩ Bridge exports (dépend de Client, Logger, Notifications, StatusClient)
+    -- ⑩ Bridge exports (dépend de Client, Logger, Notifications)
     -- REORG: exports -> bridge/manager/
     'client/modules/bridge/manager/exports.lua',
 
@@ -228,7 +228,7 @@ client_exports {
     'IsSpawned',
     'GetActiveCharacter',
     'GetActiveJob',
-    'GetStatus',
+   
     
     'RequestAppearance',
     'UpdateAppearance',

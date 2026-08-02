@@ -50,9 +50,7 @@ UNION/
 │       │
 │       ├── player/
 │       │   │   offline_ped.lua
-│       │   │
-│       │   └── status/
-│       │       └── status_client.lua
+│       │   
 │       │
 │       ├── spawn/
 │       │   ├── handler.lua
@@ -118,7 +116,6 @@ UNION/
 │       │   │
 │       │   └── status/
 │       │       ├── manager.lua
-│       │       └── status_tick.lua
 │       │
 │       ├── spawn/
 │       │   ├── handler.lua
@@ -140,7 +137,6 @@ UNION/
 │   │
 │   ├── config/
 │   │   ├── config.lua
-│   │   ├── status_config.lua
 │   │   └── webhooks.lua
 │   │
 │   └── locale/

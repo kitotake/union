@@ -60,12 +60,6 @@ function Bridge.register(name, instance)
     print(("^2[BRIDGE] '%s' enregistré (disponible: %s)^7"):format(name, tostring(instance.available)))
 end
 
-function Bridge.getStatus()
-    local status = {}
-    for name, b in pairs(Bridge._registry) do
-        status[name] = b.available
-    end
-    return status
-end
+
 
 return Bridge
